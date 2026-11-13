@@ -18,6 +18,7 @@ final class ExecuteFailure implements ShouldQueue
     use Queueable;
 
     public int $tries = 0;
+
     public bool $failOnTimeout = true;
 
     public function __construct(public string $failureId, public string $attempt, public int $timeout) {}
@@ -28,6 +29,7 @@ final class ExecuteFailure implements ShouldQueue
             $failure = FailureRecord::find($this->failureId);
             if ($failure !== null && $failure->attempt === $this->attempt && $failure->status === Status::Queued && $failure->available_at->isFuture()) {
                 $this->release($failure->available_at);
+
                 return;
             }
             $runner->run($this->failureId, $this->attempt);

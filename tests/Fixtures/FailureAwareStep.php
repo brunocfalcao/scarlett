@@ -13,12 +13,16 @@ use Throwable;
 class FailureAwareStep extends ControlledStep
 {
     public static int $hookCalls = 0;
+
     public static bool $hookThrows = false;
+
     public static bool $constructionThrows = false;
 
     public function __construct(string $name, string $mode = 'success', mixed $value = null)
     {
-        if (self::$constructionThrows) { throw new \RuntimeException('Construction unavailable.'); }
+        if (self::$constructionThrows) {
+            throw new \RuntimeException('Construction unavailable.');
+        }
         parent::__construct($name, $mode, $value);
     }
 
@@ -35,14 +39,19 @@ class FailureAwareStep extends ControlledStep
 
     public function onException(Throwable $exception, Context $context): Decision
     {
-        if ($this->mode === 'handler-crash') { throw new \RuntimeException('Handler crashed.'); }
+        if ($this->mode === 'handler-crash') {
+            throw new \RuntimeException('Handler crashed.');
+        }
+
         return $this->mode === 'classified' ? Decision::fail('Readable explanation.') : parent::onException($exception, $context);
     }
 
     public function onFailure(Context $context, Failure $failure): void
     {
         self::$hookCalls++;
-        if (self::$hookThrows) { throw new \RuntimeException('Temporary hook error.'); }
+        if (self::$hookThrows) {
+            throw new \RuntimeException('Temporary hook error.');
+        }
         self::record($context, $failure, $this->name, false);
     }
 

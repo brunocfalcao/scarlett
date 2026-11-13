@@ -13,8 +13,11 @@ use Scarlett\Failures\Status;
 class FailureRecord extends Model
 {
     protected $table = 'scarlett_failures';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
+
     protected $fillable = ['id', 'workflow_id', 'step_id', 'cause', 'reason', 'snapshot', 'status', 'attempt', 'failures', 'available_at', 'lease_until', 'sent_at', 'publishing_until', 'finished_at', 'error'];
 
     protected function casts(): array

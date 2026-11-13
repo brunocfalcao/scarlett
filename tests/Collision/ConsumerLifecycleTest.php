@@ -10,7 +10,6 @@ use Scarlett\Definition\Node;
 use Scarlett\Definition\SubjectSlot;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
-use Scarlett\Failures\Coordinator;
 use Scarlett\Failures\Status;
 use Scarlett\Models\WorkflowRecord;
 use Scarlett\Tests\Collision\Workers;

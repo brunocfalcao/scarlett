@@ -5,9 +5,11 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\DB;
 use Orchestra\Testbench\Foundation\Application;
 use Scarlett\Definition\Node;
+use Scarlett\Definition\SubjectSlot;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\Execution\Decision;
+use Scarlett\Failures\Coordinator;
 use Scarlett\ScarlettServiceProvider;
 use Scarlett\Tests\Collision\Environment;
 use Scarlett\Tests\Fixtures\EchoStep;
@@ -28,16 +30,17 @@ while (! file_exists($arguments['directory'].'/release')) {
 $started = microtime(true);
 $engine = app(Engine::class);
 $result = match ($arguments['operation']) {
-    'replace' => $engine->replace(new \Scarlett\Definition\SubjectSlot('consumer', $arguments['subject'], 'current'), function () use ($arguments) {
+    'replace' => $engine->replace(new SubjectSlot('consumer', $arguments['subject'], 'current'), function () use ($arguments) {
         if (isset($arguments['record'])) {
             DB::table('consumer_records')->where('id', $arguments['record'])->lockForUpdate()->sole();
             DB::table('consumer_records')->where('id', $arguments['record'])->increment('writes');
         }
+
         return ($arguments['veto'] ?? false) ? null : new Workflow([new Node('replaced', EchoStep::class)]);
     })?->id,
-    'failure-claim' => app(\Scarlett\Failures\Coordinator::class)->claim($arguments['failure'], $arguments['attempt']) !== null,
-    'failure-write' => app(\Scarlett\Failures\Coordinator::class)->whileCurrent($arguments['failure'], $arguments['attempt'], fn () => DB::table('consumer_records')->where('id', $arguments['record'])->increment('writes')),
-    'failure-recover' => app(\Scarlett\Failures\Coordinator::class)->recover($arguments['failure']),
+    'failure-claim' => app(Coordinator::class)->claim($arguments['failure'], $arguments['attempt']) !== null,
+    'failure-write' => app(Coordinator::class)->whileCurrent($arguments['failure'], $arguments['attempt'], fn () => DB::table('consumer_records')->where('id', $arguments['record'])->increment('writes')),
+    'failure-recover' => app(Coordinator::class)->recover($arguments['failure']),
     'admit' => $engine->start(new Workflow([new Node('admitted', EchoStep::class)]))->id,
     'cooldown' => (function () use ($engine): bool {
         $engine->cooldown();

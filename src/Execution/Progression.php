@@ -7,6 +7,7 @@ namespace Scarlett\Execution;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Scarlett\Failures\Coordinator;
 use Scarlett\Models\StepRecord;
 use Scarlett\Models\WorkflowRecord;
 use Scarlett\States\Cancelled;
@@ -97,7 +98,7 @@ final class Progression
                 $changed = true;
             }
         } while ($changed);
-        app(\Scarlett\Failures\Coordinator::class)->advance($workflow, $steps);
+        app(Coordinator::class)->advance($workflow, $steps);
         $this->aggregate($workflow, $steps);
     }
 

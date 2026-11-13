@@ -15,6 +15,7 @@ use Scarlett\Execution\Delivery;
 use Scarlett\Execution\FailureCause;
 use Scarlett\Execution\Journal;
 use Scarlett\Execution\Progression;
+use Scarlett\Failures\Coordinator;
 use Scarlett\Inputs\InputBindings;
 use Scarlett\Inputs\PayloadCodec;
 use Scarlett\Models\StepRecord;
@@ -246,7 +247,7 @@ final class Engine
                     $this->journal->transition($step, Cancelled::class, 'Workflow execution authority withdrawn.');
                 }
             }
-            app(\Scarlett\Failures\Coordinator::class)->cancel($workflow);
+            app(Coordinator::class)->cancel($workflow);
             $this->progression->advance($workflow);
 
             return true;
