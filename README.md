@@ -416,6 +416,12 @@ return a `Workflow` to replace it, or `null`/`false` to roll everything back.
 untouched. Call replacement before taking application locks.
 [See signatures, transaction rules and examples](docs/consumer-lifecycle.md#replace-the-current-workflow-of-a-subject).
 
+For subject removal, `Scarlett::deleteSubject(new Subject($type, $id), $prepare,
+guardSubjects: $relatedSubjects)` locks workflows before the consumer veto check.
+Return `true` to revoke every target lane and delete its history; `false`/`null`
+rolls everything back. Related subjects are locked for inspection and preserved.
+[Deletion contract and shared-resource guards](docs/consumer-lifecycle.md#delete-all-workflows-of-a-subject).
+
 ```mermaid
 flowchart LR
     Slot["Lock subject slot"] --> Old["Lock and revoke previous workflow"]
@@ -439,7 +445,7 @@ connection. Lease expiry cannot stop an external call already in progress.
 | `Scarlett\History` operation | Behavior |
 | --- | --- |
 | `archive($workflowId)` | Requires an existing settled workflow; returns false for active work, throws if missing |
-| `delete($workflowId)` | Deletes settled history; returns false for missing or active work |
+| `delete($workflowId, includingRunning: false)` | Deletes settled history; explicit `true` revokes unfinished work by removing it |
 | `purge($before)` | Purges eligible archived history before your cutoff; protects active work |
 
 `scarlett_history` records transitions, attempt identities, times and reasons.

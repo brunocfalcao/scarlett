@@ -63,6 +63,7 @@ never discard them to force a schema downgrade.
 | `retryException` / ignored exceptions | `onException(Throwable, Context): Decision`; use retry, fail, skip, stop or complete deliberately |
 | `resolveException` and terminal business updates | `onFailure(Context, Failure)` plus static `onFailureWithoutInstance`; keep `rescues` for distinct recovery branches |
 | Replace the current scan/revision | `replace(SubjectSlot, callable): ?WorkflowRecord`; callback veto rolls back cancellation and consumer writes |
+| Delete a subject and every workflow lane | `deleteSubject(Subject, callable, guardSubjects: [])`; pre-revocation veto, atomic cleanup and protected related subjects |
 | Current workflow for progress screens | `current(SubjectSlot): ?string`; no mirrored consumer column required |
 | Confirmation | `verify(Context, mixed $result): bool`; retries only verification after saving the business result |
 | Throttling | `Policies\Throttle`, `Decision::throttle()` or `Exceptions\Throttled`; no failure-budget consumption |
@@ -71,7 +72,7 @@ never discard them to force a schema downgrade.
 | Revoke active step / complete workflow | `cancel($stepId, includingRunning: true)` / `cancelWorkflow($workflowId)` |
 | Polymorphic relation / workflow category | `Workflow(subjectType:, subjectId:, metadata:)`; query `WorkflowRecord::forSubject($type, $id)` |
 | Step timestamps / diagnostic state | `started_at` (latest claim), `finished_at` (settlement), `scarlett_history` transitions, `error`, `failures`, `verifications` |
-| Archive / retention / specific deletion | `History::archive($id)`, `purge($before)`, `delete($id)`; all require settled work |
+| Archive / retention / specific deletion | `History::archive($id)`, `purge($before)`, `delete($id)`; settled-only by default; subject deletion explicitly revokes unfinished work |
 | Normal dispatch daemon | Remove after cutover; outcomes dispatch successors immediately |
 | Stalled-work scheduler | `scarlett:recover`, or `Engine::stalled()` / `resume()` |
 
@@ -218,7 +219,16 @@ current source before edits. This package preparation does not migrate that app.
    old Dispatched becomes Queued; WaitingForChildren is a live parent, not a
    finished step. For activity duration use step timestamps/history. Preserve
    deletion refusal during a mail handover and delayed file cleanup. Do not
-   silently omit archived workflows from site deletion.
+   silently omit archived workflows from site deletion. Use
+   `deleteSubject(new Subject($siteType, $siteId), $prepare, guardSubjects: $related)`
+   before taking site/address locks. Pass all sites sharing the relevant address
+   as guards; inside the callback, lock/recheck consumer rows and the related-site
+   set, inspect the supplied fresh workflow/step records, and veto if a relevant
+   send is Running. Return `true` after consumer database cleanup to revoke/delete
+   all target lanes and history atomically. Related-site workflows stay intact.
+   Do not cancel before the veto check or delete Scarlett tables manually.
+   Defer external file removal until commit. Admissions after deletion must
+   transactionally reject the missing site; deletion is not a permanent engine ban.
 9. **Replace operations after cutover.** Replace `freshsites:dispatch-daemon`,
    `steps:recover-stale`, archive/purge commands and their process-manager wiring
    with Scarlett workers/recovery and consumer retention commands. The archived
@@ -323,7 +333,8 @@ it has no explicit zero-delay throttle call to translate.
 
 The subsequent consumer migration identified three engine additions, now implemented:
 atomic subject-slot replacement, durable terminal failure hooks with missing-input
-fallback, and static class execution defaults. Their exact signatures and semantics
+fallback, and static class execution defaults. Subject deletion extends the same
+API family with a pre-revocation veto and optional related-subject guards. Their exact signatures and semantics
 are in [the consumer lifecycle API](docs/consumer-lifecycle.md). Runtime child
 addition and prefix-isolated tables remain deferred. Business integration tests,
 worker operation and staged cutover are the remaining proof, rather than another

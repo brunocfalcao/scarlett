@@ -45,12 +45,12 @@ final class History
         return $removed;
     }
 
-    /** Explicit subject cleanup after the caller settles or revokes the workflow. */
-    public function delete(string $workflowId): bool
+    /** Explicit deletion; includingRunning withdraws authority atomically by removing its records. */
+    public function delete(string $workflowId, bool $includingRunning = false): bool
     {
-        return DB::transaction(function () use ($workflowId): bool {
+        return DB::transaction(function () use ($workflowId, $includingRunning): bool {
             $workflow = WorkflowRecord::whereKey($workflowId)->lockForUpdate()->first();
-            if ($workflow === null || ! $this->settled($workflow)) {
+            if ($workflow === null || (! $includingRunning && ! $this->settled($workflow))) {
                 return false;
             }
             $this->remove($workflow);
@@ -61,7 +61,7 @@ final class History
 
     private function remove(WorkflowRecord $workflow): void
     {
-        $ids = $workflow->steps()->pluck('id');
+        $ids = $workflow->steps()->orderBy('id')->lockForUpdate()->pluck('id');
         $workflow->failures()->delete();
         DB::table('scarlett_history')->whereIn('step_id', $ids)->delete();
         DB::table('scarlett_deliveries')->whereIn('step_id', $ids)->delete();
@@ -71,6 +71,6 @@ final class History
 
     private function settled(WorkflowRecord $workflow): bool
     {
-        return $workflow->finished_at !== null && ! $workflow->failures()->unfinished()->exists() && $workflow->steps()->get()->every(fn ($step): bool => $step->state::phase() === Phase::Settled);
+        return $workflow->finished_at !== null && ! $workflow->failures()->unfinished()->exists() && $workflow->steps()->lockForUpdate()->get()->every(fn ($step): bool => $step->state::phase() === Phase::Settled);
     }
 }

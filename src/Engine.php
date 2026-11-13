@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Scarlett\Definition\Subject;
 use Scarlett\Definition\SubjectSlot;
 use Scarlett\Definition\Workflow;
 use Scarlett\Execution\Decision;
@@ -46,6 +47,12 @@ final class Engine
     public function current(SubjectSlot $slot): ?string
     {
         return app(WorkflowSlots::class)->current($slot);
+    }
+
+    /** @param list<Subject> $guardSubjects */
+    public function deleteSubject(Subject $subject, callable $prepare, array $guardSubjects = []): bool
+    {
+        return app(SubjectDeletion::class)->delete($subject, $prepare, $guardSubjects);
     }
 
     public function start(Workflow $definition): WorkflowRecord

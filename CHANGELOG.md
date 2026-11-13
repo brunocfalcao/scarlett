@@ -4,6 +4,8 @@
 
 ### Features
 
+- Atomic subject deletion across all workflow lanes and history, with pre-revocation vetoes and related-subject guards for consumer-owned checks.
+
 - Atomic subject-slot replacement with rollback vetoes, current-workflow lookup and revocation of old execution ownership.
 - Durable terminal failure hooks with typed causes, business-readable reasons, child-before-parent ordering, bounded recovery and persisted-input fallback.
 - Static step execution defaults, overridden by explicit node options and snapshotted without early construction.

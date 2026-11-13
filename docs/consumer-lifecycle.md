@@ -68,6 +68,66 @@ same database connection. Laravel may retry deadlocked transactions under
 with external effects scheduled after commit. No consumer replacement retry loop
 is needed. An enclosing transaction keeps publication deferred until its commit.
 
+## Delete all workflows of a subject
+
+```php
+Scarlett\Definition\Subject::__construct(string $subjectType, string $subjectId)
+Scarlett\Engine::deleteSubject(Subject $subject, callable $prepare, array $guardSubjects = []): bool
+```
+
+`$guardSubjects` is a list of `Subject` definitions for related subjects whose
+running state must remain stable during a veto check. The callback receives an
+`Illuminate\Database\Eloquent\Collection` of the target and guarded workflows,
+with their fresh `steps` relations already loaded under locks:
+`callable(Collection<int, WorkflowRecord> $locked): bool|null`.
+
+Unlike replacement, this callback runs **before revocation**, after all engine
+workflow locks. Acquire consumer row locks inside it, recheck deletion eligibility,
+perform transactional consumer cleanup, and return `true` to approve. Returning
+`false` or `null` vetoes everything, including callback writes. An exception rolls
+back and propagates; other return types are rejected. The method returns `true`
+after successful transactional deletion and `false` after a veto. The callback
+also runs when the target has no workflow history.
+
+Success revokes every unfinished target workflow, including independent unslotted
+work, every named slot, held work, and unfinished failure handlers. It deletes all
+target workflow history, including completed/archived workflows, failure records,
+delivery intents and transitions, plus every target slot pointer. Guard subjects
+are locked for inspection only and remain unchanged. Matching is exact and
+case-sensitive even on databases with case-insensitive subject columns.
+
+For a shared resource (such as an address), pass **all relevant related subjects**
+as guards. Inspect the callback's loaded steps for running work and apply your
+own domain rule. Recheck the shared-resource relationship after locking consumer
+rows; veto if the supplied guard set no longer covers it. Scarlett does not infer
+shared addresses, send-step names or deletion permissions. Avoid ordinary
+snapshot reads for the running-state decision: the supplied locked records remain
+current even inside an older MySQL transaction snapshot.
+
+Call `deleteSubject()` before taking workflow or consumer locks. It briefly holds
+an **exclusive global admission lock**, then locks relevant workflows and steps,
+then invokes the callback. New admissions, replacements, cooldown and reopening
+wait until the transaction ends. Existing unrelated workers can continue. This
+reuses the existing admission gate and requires no additional migration. Keep the
+callback short, database-only, replay-safe and on the same database connection.
+Do not start/replace workflows or call engine mutation methods inside this callback.
+An outer rollback restores both engine and consumer records. Internally the
+approved deletion calls `History::delete(string $workflowId, bool $includingRunning = false): bool`
+with `includingRunning: true`; removing attempts under the workflow lock withdraws
+their ownership atomically. Ordinary history deletion retains its settled-only
+default. History cleanup uses current reads rather than an older transaction snapshot.
+
+Deletion does not permanently ban future use of the subject identity. A producer
+admitted after deletion must transactionally recheck that its consumer subject
+still exists, using engine-before-consumer lock order, and roll back if absent.
+This prevents a later independent admission from recreating orphan work without
+adding a package-owned business tombstone.
+
+An old worker's later claim/outcome/guarded-write finds no record and is rejected.
+Already published transport jobs may still arrive harmlessly. External calls
+already in flight cannot be undone; use the callback veto to preserve any required
+handover protections, and keep post-call database writes inside `whileCurrent`.
+
 ## Handle every terminal failure durably
 
 ```php

@@ -5,9 +5,11 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\DB;
 use Orchestra\Testbench\Foundation\Application;
 use Scarlett\Definition\Node;
+use Scarlett\Definition\Subject;
 use Scarlett\Definition\SubjectSlot;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
+use Scarlett\Exceptions\DeletionVetoed;
 use Scarlett\Execution\Decision;
 use Scarlett\Failures\Coordinator;
 use Scarlett\ScarlettServiceProvider;
@@ -30,6 +32,35 @@ while (! file_exists($arguments['directory'].'/release')) {
 $started = microtime(true);
 $engine = app(Engine::class);
 $result = match ($arguments['operation']) {
+    'delete-subject' => $engine->deleteSubject(new Subject('consumer', $arguments['subject']), function ($locked) use ($arguments) {
+        if (($arguments['check_running'] ?? false) && $locked->contains(fn ($flow) => $flow->steps->contains(fn ($step) => (string) $step->state === 'running'))) {
+            return false;
+        }
+        if (isset($arguments['record'])) {
+            DB::table('consumer_records')->where('id', $arguments['record'])->lockForUpdate()->sole();
+            if ($arguments['delete_record'] ?? false) {
+                DB::table('consumer_records')->where('id', $arguments['record'])->delete();
+            } else {
+                DB::table('consumer_records')->where('id', $arguments['record'])->increment('writes');
+            }
+        }
+
+        return ! ($arguments['veto'] ?? false);
+    }, guardSubjects: array_map(fn ($id) => new Subject('consumer', $id), $arguments['guards'] ?? [])),
+    'subject-admit' => (function () use ($engine, $arguments): ?string {
+        try {
+            return DB::transaction(function () use ($engine, $arguments): string {
+                $workflow = $engine->start(new Workflow([new Node('admitted', EchoStep::class)], 'consumer', $arguments['subject']));
+                if (! DB::table('consumer_records')->where('id', $arguments['record'])->lockForUpdate()->exists()) {
+                    throw new DeletionVetoed;
+                }
+
+                return $workflow->id;
+            });
+        } catch (DeletionVetoed) {
+            return null;
+        }
+    })(),
     'replace' => $engine->replace(new SubjectSlot('consumer', $arguments['subject'], 'current'), function () use ($arguments) {
         if (isset($arguments['record'])) {
             DB::table('consumer_records')->where('id', $arguments['record'])->lockForUpdate()->sole();
