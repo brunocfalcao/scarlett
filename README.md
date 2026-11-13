@@ -26,8 +26,8 @@ flowchart LR
 
 ## Install
 
-Requires **Laravel 13**, **PHP 8.4+** and a database. Use MySQL for concurrent
-workloads; SQLite is suitable for local tests. PostgreSQL is not yet verified.
+Requires **Laravel 13**, **PHP 8.4+** and **SQLite, MySQL or PostgreSQL**.
+See [database configuration](docs/guide.md#database-configuration) for concurrent workers.
 
 Add this entry to your application's `composer.json` repositories:
 
@@ -39,7 +39,7 @@ Add this entry to your application's `composer.json` repositories:
 ```
 
 ```sh
-composer require brunocfalcao/scarlett:dev-main
+composer require brunocfalcao/scarlett:^1.0
 php artisan migrate
 ```
 

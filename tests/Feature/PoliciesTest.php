@@ -10,6 +10,7 @@ use Scarlett\Engine;
 use Scarlett\Execution\Decision;
 use Scarlett\Execution\Runner;
 use Scarlett\Models\StepRecord;
+use Scarlett\States\Completed;
 use Scarlett\Tests\Fixtures\ControlledStep;
 use Scarlett\Tests\Fixtures\OwnershipStep;
 
@@ -74,14 +75,17 @@ it('does not publish rolled-back workflow work', function () {
     expect(StepRecord::where('workflow_id', $workflow->id)->exists())->toBeFalse();
     Queue::assertNothingPushed();
 });
-it('immediately propagates a child failure while preserving already-running siblings', function () {
+it('waits for already-running siblings before propagating a child failure', function () {
     $engine = app(Engine::class);
     $workflow = $engine->start(new Workflow([controlled('p'), controlled('c', 'fail', parent: 'p'), controlled('s', parent: 'p'), controlled('next', stage: 1), controlled('rescue', rescues: 'p')]));
     runStep($workflow->id, 'p');
     $sibling = $workflow->steps()->where('key', 's')->sole();
     $engine->claim($sibling->id, $sibling->attempt);
     runStep($workflow->id, 'c');
-    expect(statesOf($workflow->id))->toBe(['c' => 'failed', 'next' => 'cancelled', 'p' => 'failed', 'rescue' => 'queued', 's' => 'running']);
+    expect(statesOf($workflow->id))->toBe(['c' => 'failed', 'next' => 'pending', 'p' => 'waitingforchildren', 'rescue' => 'pending', 's' => 'running']);
+    $engine->saveAction($sibling->id, $sibling->attempt, null, Completed::class);
+    $engine->finish($sibling->id, $sibling->attempt);
+    expect(statesOf($workflow->id))->toBe(['c' => 'failed', 'next' => 'cancelled', 'p' => 'failed', 'rescue' => 'queued', 's' => 'completed']);
 });
 it('keeps a settled workflow immutable when obsolete notifications arrive', function () {
     $engine = app(Engine::class);

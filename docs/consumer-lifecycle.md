@@ -95,7 +95,7 @@ column or knowledge of Scarlett's tables is required.
 Integers are converted to their string identity (`0` and `'0'` identify the same
 subject); other values are rejected before querying. Non-empty batches use the
 same non-empty UTF-8 identity validation as `SubjectSlot`. Matching remains exact
-for case, accents and trailing spaces on both SQLite and MySQL. Duplicate IDs
+for case, accents and trailing spaces on SQLite, MySQL and PostgreSQL. Duplicate IDs
 collapse, and results preserve the first requested order. PHP's normal array-key
 rules apply: numeric strings such as `'42'` become integer keys; `'042'` stays a
 string. The return type is `array<string|int, string>`.
@@ -251,8 +251,12 @@ step instance, model or service.
 
 A failed child's handler settles before its parent's handler starts. The parent
 also waits for already-running descendants that could subsequently fail. Siblings
-have no promised relative order. Existing rescue nodes still activate from the
-step's failure immediately, independently of handler completion. Use rescue nodes
+have no promised relative order. Rescue nodes activate from their target's settled
+failure, independently of handler completion. A parent with a failed child stays
+`waitingforchildren` until its children and their rescue branches settle; only
+then does it fail, register its own hook and admit its own rescues. This includes
+already-running siblings, nested resolver children and rescues of failed resolvers.
+Use rescue nodes
 for a distinct recovery workflow; do not duplicate the same business effect in
 both a rescue and a failure hook.
 
@@ -386,3 +390,15 @@ Stop admission/workers and drain or deliberately cancel outstanding work before
 rolling back code/schema. Rolling back these migrations removes slot pointers
 and failure history; it is not a live feature toggle. Preserve required history
 before a downgrade. No migration touches consumer business tables.
+
+## Database transaction semantics
+
+The lock order applies to MySQL and PostgreSQL row locks and SQLite's single-writer
+transactions. Configure concurrent SQLite workers as described in the
+[database guide](guide.md#database-configuration). SQLite serializes admissions and
+writes globally; it cannot provide the parallel writers available on server databases.
+
+Progression, cancellation, failure-hook ordering and retention use current locked
+records under the workflow lock. They do not use an older enclosing MySQL snapshot
+to overwrite a completed step or leave a joined parent waiting. Consumers must still
+acquire admission before their own locks when admitting follow-up work.

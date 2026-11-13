@@ -7,6 +7,7 @@ use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\History;
+use Scarlett\Tests\Collision\Environment;
 use Scarlett\Tests\Collision\Workers;
 use Scarlett\Tests\Fixtures\FailureAwareStep;
 
@@ -16,19 +17,17 @@ it('protects newly committed failure handlers inside an older transaction snapsh
     if ($operation === 'purge') {
         $flow->update(['archived_at' => now()->subDays(31)]);
     }
-    config(['database.connections.concurrent' => config('database.connections.mysql')]);
+    config(['database.connections.concurrent' => config('database.connections.'.Environment::driver())]);
     DB::beginTransaction();
     try {
         expect($flow->failures()->count())->toBe(0);
-        DB::setDefaultConnection('concurrent');
-        runStep($flow->id, 'failure');
-        DB::setDefaultConnection('mysql');
+        Environment::concurrentCommit(fn () => runStep($flow->id, 'failure'));
         $history = app(History::class);
         expect($operation === 'archive' ? $history->archive($flow->id) : $history->purge(now()->subDays(30)))->toBe($operation === 'archive' ? false : 0);
         DB::commit();
         expect($flow->fresh()->status)->toBe('running')->and($flow->failures()->unfinished()->count())->toBe(1);
     } finally {
-        DB::setDefaultConnection('mysql');
+        DB::setDefaultConnection(Environment::driver());
         if (DB::transactionLevel() > 0) {
             DB::rollBack();
         }

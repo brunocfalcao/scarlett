@@ -34,6 +34,10 @@ final class Workers
             }
             self::until(fn (): bool => count(glob($directory.'/*.ready')) === count($operations));
             touch($directory.'/release');
+            if (Environment::driver() === 'sqlite') {
+                // The parent owns SQLite's writer lock. Observe both workers immediately before BEGIN IMMEDIATE.
+                self::until(fn (): bool => count(glob($directory.'/*.contending')) === count($operations));
+            }
             // Both database sessions must be waiting on the lock; readiness alone is not collision proof.
             self::until(function () use ($operations, $processes, $lockTable): bool {
                 foreach ($processes as $process) {
@@ -41,20 +45,25 @@ final class Workers
                         throw new \RuntimeException('Worker exited before lock contention: '.$process->getErrorOutput().$process->getOutput());
                     }
                 }
-                $row = DB::selectOne("SELECT COUNT(DISTINCT thread_id) AS waiting FROM performance_schema.data_locks WHERE object_schema = ? AND object_name = ? AND lock_status = 'WAITING'", [Environment::DATABASE, $lockTable]);
 
-                return (int) $row->waiting >= count($operations);
+                return Environment::driver() === 'sqlite' || Environment::waitingWorkers($lockTable) >= count($operations);
             });
+            $releasedAt = microtime(true);
             DB::commit();
 
-            return array_map(function (Process $process): array {
+            return array_map(function (Process $process) use ($releasedAt): array {
                 $process->wait();
                 if (! $process->isSuccessful()) {
                     throw new \RuntimeException($process->getErrorOutput().$process->getOutput());
                 }
 
                 try {
-                    return json_decode(trim($process->getOutput()), true, flags: JSON_THROW_ON_ERROR);
+                    $result = json_decode(trim($process->getOutput()), true, flags: JSON_THROW_ON_ERROR);
+                    if (Environment::driver() === 'sqlite' && ($result['acquired_at'] === null || $result['acquired_at'] < $releasedAt)) {
+                        throw new \RuntimeException('SQLite worker acquired its transaction before the parent released the writer lock.');
+                    }
+
+                    return $result;
                 } catch (\JsonException $exception) {
                     throw new \RuntimeException('Invalid worker output: '.$process->getOutput(), previous: $exception);
                 }

@@ -30,9 +30,24 @@ flowchart LR
 
 ## Install in Laravel
 
-Requires **Laravel 13**, **PHP 8.4+**, and an application database. MySQL is the
-supported database for concurrent deployments. SQLite is useful for local and
-isolated tests; PostgreSQL has not been verified.
+Requires **Laravel 13**, **PHP 8.4+**, and **SQLite, MySQL or PostgreSQL**.
+
+### Database configuration
+
+MySQL and PostgreSQL use row locks. SQLite serializes writers; for multiple workers,
+configure the application's SQLite connection in `config/database.php`:
+
+```php
+'journal_mode' => 'WAL',
+'busy_timeout' => 10000,
+'transaction_mode' => 'IMMEDIATE',
+```
+
+Choose a busy timeout suitable for your workload and keep transactions short.
+`IMMEDIATE` acquires the writer lock before reads, avoiding a deferred transaction's
+read-to-write upgrade race. SQLite permits only one writer at a time; use MySQL or
+PostgreSQL when concurrent database writes are a workload requirement. The suite's
+SQLite contention checks use this configuration, not Laravel's deferred default.
 
 ### 1. Add the package
 
@@ -46,10 +61,10 @@ Add this repository entry to your application's existing `composer.json`
 }
 ```
 
-Then install from the development branch:
+Then install the tagged stable release:
 
 ```sh
-composer require brunocfalcao/scarlett:dev-main
+composer require brunocfalcao/scarlett:^1.0
 php artisan migrate
 ```
 
@@ -222,6 +237,12 @@ another same-stage sibling is not a valid prerequisite binding.
 Define the whole tree before starting. A parent runs and verifies its own action,
 then waits for its children. Children may read the parent's committed action result.
 A `rescues` node becomes eligible when its target definitively fails or stops.
+Failure cascades **from child to parent**. The parent stays `waitingforchildren`
+until its children and their complete rescue branches settle. This includes
+parallel resolvers, later resolver stages, nested children, and rescues of failed
+resolvers. Already-running siblings may finish and run their own recovery;
+unstarted ordinary siblings are cancelled. Only then does the parent become
+`failed` and admit its own rescue branch. The same rule repeats at every level.
 
 ```mermaid
 flowchart TD
@@ -231,8 +252,10 @@ flowchart TD
     A --> Complete["Parent completes when all children succeed"]
     B --> Complete
     Parent -.->|"failure or stop"| Rescue["Record failure · rescues import"]
-    A -.->|"failure propagates to parent"| Rescue
-    B -.->|"failure propagates to parent"| Rescue
+    A -.->|"failure or stop"| Drain["Finish children and their rescue branches"]
+    B -.->|"failure or stop"| Drain
+    Drain --> Failed["Parent becomes failed"]
+    Failed --> Rescue
     classDef recovery fill:#fff7ed,stroke:#c2410c,color:#7c2d12
     class Rescue recovery
 ```
@@ -252,6 +275,13 @@ unstarted dependent work; already-running siblings retain their own ownership.
 Cancellation revokes authority but cannot interrupt an external call already running.
 Unused rescue branches are skipped. **A successful rescue does not erase the original
 failure, reopen cancelled successors, or turn a failed workflow into a successful one.**
+
+Resolvers targeting the same key form a recovery group within the same workflow:
+equal `stage` values run in parallel; later stages await all earlier stages.
+No separate block UUID is needed. Throttles and retries keep the parent waiting;
+exhausted resolvers settle as failed and may activate their own rescues.
+Durable `onFailure` hooks have separate child-before-parent ordering; rescue
+progression does not wait for those hooks to finish.
 
 Dynamic child creation and separate table-prefix execution scopes are deferred.
 Recurring schedules and calendar windows belong in your Laravel application.
@@ -513,23 +543,38 @@ hooks rather than directly mutating storage models.
 
 ## Develop and test the package
 
-Run these commands from the package checkout:
+Run the **entire suite on each database** from the package checkout:
 
 ```sh
 composer install
-./run-pest-tia.sh --filtered --testsuite=Scarlett
-./run-pest-tia.sh --fresh
+SCARLETT_TEST_DRIVER=sqlite ./run-pest-tia.sh --fresh
+SCARLETT_TEST_DRIVER=mysql ./run-pest-tia.sh --fresh
+SCARLETT_TEST_DRIVER=pgsql SCARLETT_TEST_USER=postgres ./run-pest-tia.sh --fresh
 ```
 
-The full suite includes SQLite/Testbench checks, independent queue workers and real
-MySQL contention/migration tests. It requires a dedicated `scarlett_collision_tests`
-database and refuses to reset another database. Configure `SCARLETT_TEST_HOST`,
-`SCARLETT_TEST_PORT`, `SCARLETT_TEST_USER` and `SCARLETT_TEST_PASSWORD`. Its database
-user needs access to `performance_schema.data_locks`. Do not run concurrent collision
-suites against the same test database.
+Each run executes all feature, migration, independent queue-worker and contention
+cases. CI repeats these three lanes on PHP 8.4 and 8.5. The local verification uses
+MySQL 9.7 and PostgreSQL 17; other server versions are not certified by this matrix.
+
+Create a dedicated `scarlett_collision_tests` database on each server. Configure
+`SCARLETT_TEST_HOST`, `SCARLETT_TEST_PORT`, `SCARLETT_TEST_USER` and
+`SCARLETT_TEST_PASSWORD` for local credentials. MySQL's user must be able to inspect
+`performance_schema.data_locks`; PostgreSQL observes its own sessions' lock waits.
+SQLite feature tests use memory; process tests share a dedicated temporary file,
+WAL and immediate transactions. The suite checks the actual target before resetting
+it. Never point it at an application database or run two suites against the same
+backend simultaneously.
+
+Lock assertions follow each database's semantics: server tests observe row-lock
+waits; SQLite tests observe contenders before acquisition and verify acquisition
+occurs after the held writer lock is released. MySQL repeatable-read regressions
+retain an old snapshot; PostgreSQL uses its default `READ COMMITTED` statement
+snapshots, while SQLite commits the read-only observation phase before the next writer transaction.
 
 Local tests use Pest TIA with Herd coverage or PCOV/Xdebug; explicit selections run
-directly. CI runs exhaustive non-TIA tests. `composer format` applies Laravel Pint.
+directly. CI runs exhaustive non-TIA tests. Without `SCARLETT_TEST_DRIVER`, the
+historical default uses SQLite features and MySQL collisions. `composer format`
+applies Laravel Pint.
 
 See the [changelog](../CHANGELOG.md) for changes. Scarlett is [MIT licensed](../LICENSE).
 

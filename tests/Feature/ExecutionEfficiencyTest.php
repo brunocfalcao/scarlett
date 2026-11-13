@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
@@ -35,7 +36,7 @@ it('does not reload sibling steps for a heartbeat or guarded consumer write', fu
     expect($flow->fresh()->status)->toBe('running');
 });
 
-it('uses the state index to exclude retained history from recovery candidates', function () {
+it('restricts recovery candidates to indexed active states', function () {
     Queue::fake();
     $flow = app(Engine::class)->start(new Workflow([controlled('done')]));
     runStep($flow->id, 'done');
@@ -44,8 +45,13 @@ it('uses the state index to exclude retained history from recovery candidates', 
     expect(app(Engine::class)->stalled())->toBeFalse();
     $query = collect(DB::getQueryLog())->first(fn ($query) => str_contains($query['query'], 'scarlett_steps'));
     DB::disableQueryLog();
-    $plan = DB::select('EXPLAIN QUERY PLAN '.$query['query'], $query['bindings']);
-    expect(implode(' ', array_column($plan, 'detail')))->toContain('scarlett_steps_state_index');
+    if (DB::connection()->getDriverName() === 'sqlite') {
+        $plan = DB::select('EXPLAIN QUERY PLAN '.$query['query'], $query['bindings']);
+        expect(implode(' ', array_column($plan, 'detail')))->toContain('scarlett_steps_state_index');
+    }
+    expect(collect(Schema::getIndexes('scarlett_steps'))->contains(fn (array $index): bool => $index['columns'] === ['state']))->toBeTrue();
+    expect(str_replace('`', '"', $query['query']))->toContain('"state" in')
+        ->and($query['bindings'])->toContain('queued', 'running')->not->toContain('completed');
     expect($flow->fresh()->status)->toBe('completed');
 });
 
@@ -78,7 +84,7 @@ it('loads publication steps in one batch and excludes obsolete deliveries', func
     DB::flushQueryLog();
     app(Delivery::class)->flush($flow->id);
     $lookups = collect(DB::getQueryLog())
-        ->filter(fn ($query) => str_starts_with($query['query'], 'select * from "scarlett_steps"'));
+        ->filter(fn ($query) => str_starts_with(str_replace('`', '"', $query['query']), 'select * from "scarlett_steps"'));
     DB::disableQueryLog();
     expect($lookups)->toHaveCount(1);
     Queue::assertNotPushed(ExecuteStep::class, fn ($job) => $job->attempt === $obsolete);

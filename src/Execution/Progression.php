@@ -27,17 +27,28 @@ final class Progression
         if ($workflow->finished_at !== null) {
             return;
         }
-        $steps = $workflow->steps()->orderByDesc('priority')->get()->keyBy('key');
+        // The caller may already hold an older MySQL snapshot; progression needs current outcomes.
+        $steps = $workflow->steps()->orderByDesc('priority')->lockForUpdate()->get()->keyBy('key');
         $childrenByParent = $steps->groupBy('parent_key');
+        $branchesByOwner = $steps->groupBy(fn (StepRecord $step): ?string => $step->parent_key ?? $step->rescues_key);
         do {
             $changed = false;
             foreach ($steps as $step) {
                 $phase = $step->state::phase();
                 if ($phase === Phase::Children) {
                     $children = $childrenByParent->get($step->key, collect());
-                    if ($children->contains(fn ($child): bool => $child->state::activatesRecovery())) {
-                        $this->journal->transition($step, Failed::class, 'A child failed.', FailureCause::ChildFailed);
-                        $changed = true;
+                    if ($this->hasFailedChild($step, $childrenByParent)) {
+                        // Failure closes ordinary admission while running children and their recovery drain.
+                        foreach ($children as $child) {
+                            if (in_array($child->state::phase(), [Phase::Pending, Phase::Queued], true)) {
+                                $this->journal->transition($child, Cancelled::class, 'A sibling failed.');
+                                $changed = true;
+                            }
+                        }
+                        if ($children->every(fn (StepRecord $child): bool => $this->branchSettled($child, $branchesByOwner))) {
+                            $this->journal->transition($step, Failed::class, 'A child failed.', FailureCause::ChildFailed);
+                            $changed = true;
+                        }
 
                         continue;
                     }
@@ -102,9 +113,27 @@ final class Progression
         $this->aggregate($workflow, $steps);
     }
 
+    /** A waiting child can already be draining a failure further down the ordinary tree. */
+    private function hasFailedChild(StepRecord $parent, Collection $childrenByParent): bool
+    {
+        return $childrenByParent->get($parent->key, collect())->contains(
+            fn (StepRecord $child): bool => $child->state::activatesRecovery()
+                || ($child->state::phase() === Phase::Children && $this->hasFailedChild($child, $childrenByParent)),
+        );
+    }
+
+    /** Recovery is bottom-up: include nested children and rescues of rescues, but not the waiting parent's own rescues. */
+    private function branchSettled(StepRecord $step, Collection $branchesByOwner): bool
+    {
+        return $step->state::phase() === Phase::Settled
+            && $branchesByOwner->get($step->key, collect())->every(
+                fn (StepRecord $branch): bool => $this->branchSettled($branch, $branchesByOwner),
+            );
+    }
+
     private function aggregate(WorkflowRecord $workflow, Collection $steps): void
     {
-        if ($steps->every(fn ($step): bool => $step->state::phase() === Phase::Settled) && ! $workflow->failures()->unfinished()->exists()) {
+        if ($steps->every(fn ($step): bool => $step->state::phase() === Phase::Settled) && $workflow->failures()->unfinished()->lockForUpdate()->first() === null) {
             $failed = $steps->contains(fn ($step): bool => $step->state::activatesRecovery());
             // Unused recovery nodes do not make a successful workflow cancelled.
             $cancelled = $steps->contains(fn ($step): bool => $step->rescues_key === null && ! $step->state::satisfiesDependency());

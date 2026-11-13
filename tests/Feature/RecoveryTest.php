@@ -51,11 +51,29 @@ it('replays an unsent delivery without claiming a healthy running step', functio
     $queued = $flow->steps()->where('key', 'b')->sole();
     DB::table('scarlett_deliveries')->where('step_id', $queued->id)->update(['sent_at' => null]);
     expect(app(Recovery::class)->stalled($flow->id))->toBeTrue();
-    app(Recovery::class)->resume($flow->id);
+    expect(app(Recovery::class)->resume($flow->id))->toBe(1);
     expect($running->fresh()->attempt)->toBe($running->attempt);
     expect(statesOf($flow->id))->toBe(['a' => 'running', 'b' => 'queued']);
-    expect(DB::table('scarlett_deliveries')->where('step_id', $queued->id)->value('sent_at'))->not->toBeNull();
+    expect(DB::table('scarlett_deliveries')->where('step_id', $queued->id)->value('sent_at'))->toBe(now()->toDateTimeString());
 });
+
+it('does not replay a queued step without an eligible delivery', function (string $condition) {
+    $flow = app(Engine::class)->start(new Workflow([controlled('queued')]));
+    $step = $flow->steps()->sole();
+    $delivery = DB::table('scarlett_deliveries')->where('step_id', $step->id);
+    if ($condition === 'missing') {
+        $delivery->delete();
+    } elseif ($condition === 'publishing') {
+        $delivery->update(['sent_at' => null, 'publishing_until' => now()->addSeconds(config('scarlett.delivery_retry_seconds'))]);
+    }
+    $before = $delivery->first();
+    Queue::fake();
+    expect(app(Engine::class)->recover($step->id))->toBeFalse()
+        ->and($delivery->first())->toEqual($before)
+        ->and($step->fresh()->attempt)->toBe($step->attempt)
+        ->and((string) $step->fresh()->state)->toBe('queued');
+    Queue::assertNothingPushed();
+})->with(['missing', 'publishing', 'recently sent']);
 it('resumes confirmation after a crash without repeating the saved action', function () {
     $engine = app(Engine::class);
     ControlledStep::$actions = [];

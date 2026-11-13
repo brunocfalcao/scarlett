@@ -89,14 +89,28 @@ it('serializes consumer database writes with workflow revocation and rejects eve
     expect(DB::table('consumer_records')->where('id', $record)->value('writes'))->toBe((int) $results[0]['result']);
 });
 
-it('holds a shared admission lock while creating a workflow', function () {
+it('fences conflicting admission while creating a workflow', function () {
     DB::beginTransaction();
     try {
         $flow = app(Engine::class)->start(new Workflow([controlled('shared-gate')]));
-        $locks = DB::select('SELECT lock_mode FROM performance_schema.data_locks WHERE object_schema = ? AND object_name = ? AND lock_type = ? AND lock_data = ? LIMIT 10', [Environment::DATABASE, 'scarlett_control', 'RECORD', "'admission'"]);
-        expect(array_column($locks, 'lock_mode'))->toBe(['S,REC_NOT_GAP']);
+        if (Environment::driver() === 'mysql') {
+            $locks = DB::select('SELECT lock_mode FROM performance_schema.data_locks WHERE object_schema = ? AND object_name = ? AND lock_type = ? AND lock_data = ? LIMIT 10', [Environment::DATABASE, 'scarlett_control', 'RECORD', "'admission'"]);
+            expect(array_column($locks, 'lock_mode'))->toBe(['S,REC_NOT_GAP']);
+        } else {
+            config(['database.connections.probe' => config('database.connections.'.Environment::driver())]);
+            config(['database.connections.probe.busy_timeout' => 1]);
+            $probe = DB::connection('probe');
+            if (Environment::driver() === 'pgsql') {
+                $probe->statement("SET lock_timeout = '50ms'");
+                expect($probe->table('scarlett_control')->where('id', 'admission')->sharedLock()->first()?->id)->toBe('admission');
+                expect(fn () => $probe->table('scarlett_control')->where('id', 'admission')->lockForUpdate()->first())->toThrow(PDOException::class);
+            } else {
+                expect(fn () => $probe->beginTransaction())->toThrow(PDOException::class, 'database is locked');
+            }
+        }
         expect($flow->status)->toBe('running');
     } finally {
         DB::rollBack();
+        DB::purge('probe');
     }
 });

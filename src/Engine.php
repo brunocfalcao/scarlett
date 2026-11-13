@@ -264,7 +264,7 @@ final class Engine
             if ($workflow === null || $workflow->finished_at !== null) {
                 return false;
             }
-            foreach ($workflow->steps()->get() as $step) {
+            foreach ($workflow->steps()->lockForUpdate()->get() as $step) {
                 if ($step->state::phase() !== Phase::Settled) {
                     $this->journal->transition($step, Cancelled::class, 'Workflow execution authority withdrawn.');
                 }
@@ -296,7 +296,15 @@ final class Engine
     {
         return (bool) $this->mutate($stepId, function (StepRecord $step): bool {
             if ($step->state::phase() === Phase::Queued && ! $step->available_at->isFuture()) {
-                return $this->delivery->replayable($step)->update(['sent_at' => null, 'updated_at' => now()]) > 0;
+                $delivery = $this->delivery->replayable($step)->lockForUpdate()->first();
+                if ($delivery === null) {
+                    return false;
+                }
+                // MySQL reports zero changed rows when an unsent intent already has these values.
+                // Eligibility, not the update count, determines whether to publish after commit.
+                DB::table('scarlett_deliveries')->where('id', $delivery->id)->update(['sent_at' => null, 'updated_at' => now()]);
+
+                return true;
             }
             if ($step->state::phase() !== Phase::Running || $step->lease_until === null || $step->lease_until->isFuture()) {
                 return false;

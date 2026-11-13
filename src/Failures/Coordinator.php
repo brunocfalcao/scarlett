@@ -52,7 +52,8 @@ final class Coordinator
     /** Children may fail later while running; wait for the entire ordinary subtree before the parent's hook. */
     public function advance(WorkflowRecord $workflow, Collection $steps): void
     {
-        $failures = $workflow->failures()->get()->keyBy('step_id');
+        // Use current hook outcomes even inside a consumer's older transaction snapshot.
+        $failures = $workflow->failures()->lockForUpdate()->get()->keyBy('step_id');
         foreach ($failures as $failure) {
             if ($failure->status !== Status::Pending) {
                 continue;

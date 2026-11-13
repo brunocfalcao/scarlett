@@ -15,6 +15,7 @@ use Scarlett\Failures\Status;
 use Scarlett\Inputs\FromResult;
 use Scarlett\Inputs\PayloadCodec;
 use Scarlett\Inputs\Service;
+use Scarlett\Tests\Collision\Environment;
 use Scarlett\Tests\Fixtures\Amount;
 use Scarlett\Tests\Fixtures\AmountMapper;
 use Scarlett\Tests\Fixtures\EchoStep;
@@ -38,7 +39,7 @@ beforeEach(function () {
 });
 
 it('round trips a mapped result through a real database queue and independent worker', function () {
-    config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql',
+    config(['queue.default' => 'database', 'queue.connections.database.connection' => Environment::driver(),
         'scarlett.payload_mappers' => ['amount-v1' => AmountMapper::class]]);
     $flow = app(Engine::class)->start(new Workflow([
         new Node('source', EchoStep::class, inputs: ['value' => new Amount(123)]),
@@ -55,7 +56,7 @@ it('round trips a mapped result through a real database queue and independent wo
 });
 
 it('keeps delayed jobs in the real queue until due and preserves primitive timeout routing', function () {
-    config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql']);
+    config(['queue.default' => 'database', 'queue.connections.database.connection' => Environment::driver()]);
     $flow = app(Engine::class)->start(new Workflow([
         new Node('delayed', EchoStep::class, inputs: ['value' => 'due-result'], notBefore: now()->addHour(), execution: new ExecutionOptions(workerTimeout: 900, leaseSeconds: 1000)),
     ]));
@@ -79,7 +80,7 @@ it('keeps delayed jobs in the real queue until due and preserves primitive timeo
 });
 
 it('releases an early delivery and executes its later transport attempt without recovery', function () {
-    config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql']);
+    config(['queue.default' => 'database', 'queue.connections.database.connection' => Environment::driver()]);
     $flow = app(Engine::class)->start(new Workflow([
         new Node('early', EchoStep::class, inputs: ['value' => 'once-due'], notBefore: now()->addMinute()),
     ]));
@@ -99,7 +100,7 @@ it('releases an early delivery and executes its later transport attempt without 
 });
 
 it('fails unexpected transport errors without a cache and retains recoverable engine intent', function () {
-    config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql']);
+    config(['queue.default' => 'database', 'queue.connections.database.connection' => Environment::driver()]);
     $flow = app(Engine::class)->start(new Workflow([
         new Node('recoverable', EchoStep::class, inputs: ['value' => 'after-transport-failure']),
     ]));
@@ -121,7 +122,7 @@ it('fails unexpected transport errors without a cache and retains recoverable en
 });
 
 it('fails timed out transport work without relying on a cache counter', function () {
-    config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql']);
+    config(['queue.default' => 'database', 'queue.connections.database.connection' => Environment::driver()]);
     $flow = app(Engine::class)->start(new Workflow([
         new Node('timeout', SlowStep::class, inputs: ['seconds' => 3], execution: new ExecutionOptions(workerTimeout: 1, leaseSeconds: 5)),
     ]));
@@ -140,7 +141,7 @@ it('fails timed out transport work without relying on a cache counter', function
 });
 
 it('delivers terminal failure hooks through an independent database queue worker', function () {
-    config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql']);
+    config(['queue.default' => 'database', 'queue.connections.database.connection' => Environment::driver()]);
     $flow = app(Engine::class)->start(new Workflow([
         new Node('action', FailureAwareStep::class, inputs: ['name' => 'action', 'mode' => 'fail']),
     ]));
@@ -154,7 +155,7 @@ it('delivers terminal failure hooks through an independent database queue worker
 });
 
 it('recovers terminal failure effects after real action or handler worker timeouts', function (string $mode) {
-    config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql']);
+    config(['queue.default' => 'database', 'queue.connections.database.connection' => Environment::driver()]);
     $flow = app(Engine::class)->start(new Workflow([
         new Node('timeout', SlowFailureAwareStep::class,
             inputs: ['name' => 'timeout', 'mode' => $mode],

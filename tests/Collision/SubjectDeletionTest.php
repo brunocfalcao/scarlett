@@ -11,6 +11,7 @@ use Scarlett\Definition\SubjectSlot;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\Models\WorkflowRecord;
+use Scarlett\Tests\Collision\Environment;
 use Scarlett\Tests\Collision\Workers;
 
 beforeEach(function () {
@@ -84,14 +85,15 @@ it('deletes current history even when the outer transaction predates admission o
     $subject = (string) Str::uuid();
     $engine = app(Engine::class);
     $old = $engine->start(new Workflow([controlled('complete-later')], 'consumer', $subject));
-    config(['database.connections.concurrent' => config('database.connections.mysql')]);
+    config(['database.connections.concurrent' => config('database.connections.'.Environment::driver())]);
     DB::beginTransaction();
     try {
         expect((string) $old->steps()->sole()->state)->toBe('queued');
-        DB::setDefaultConnection('concurrent');
-        runStep($old->id, 'complete-later');
-        $new = $engine->start(new Workflow([controlled('admit-later')], 'consumer', $subject));
-        DB::setDefaultConnection('mysql');
+        $new = Environment::concurrentCommit(function () use ($old, $engine, $subject) {
+            runStep($old->id, 'complete-later');
+
+            return $engine->start(new Workflow([controlled('admit-later')], 'consumer', $subject));
+        });
         expect($engine->deleteSubject(new Subject('consumer', $subject), function ($locked) use ($old, $new) {
             expect((string) $locked->firstWhere('id', $old->id)->steps->sole()->state)->toBe('completed');
             expect((string) $locked->firstWhere('id', $new->id)->steps->sole()->state)->toBe('queued');
@@ -101,7 +103,7 @@ it('deletes current history even when the outer transaction predates admission o
         DB::commit();
         expect(WorkflowRecord::whereKey([$old->id, $new->id])->count())->toBe(0);
     } finally {
-        DB::setDefaultConnection('mysql');
+        DB::setDefaultConnection(Environment::driver());
         if (DB::transactionLevel() > 0) {
             DB::rollBack();
         }

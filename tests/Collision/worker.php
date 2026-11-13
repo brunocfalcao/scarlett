@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Orchestra\Testbench\Foundation\Application;
@@ -21,6 +22,19 @@ require dirname(__DIR__, 2).'/vendor/autoload.php';
 $app = Application::create(options: ['extra' => ['providers' => [ScarlettServiceProvider::class], 'dont-discover' => ['*']]]);
 Environment::configure($app);
 $arguments = json_decode($argv[1], true, flags: JSON_THROW_ON_ERROR);
+$acquiredAt = null;
+if (Environment::driver() === 'sqlite') {
+    $app['events']->listen(TransactionBeginning::class, function ($event) use (&$acquiredAt): void {
+        if ($event->connection->transactionLevel() === 1) {
+            $acquiredAt ??= microtime(true);
+        }
+    });
+    DB::connection()->beforeStartingTransaction(function ($connection) use ($arguments): void {
+        if ($connection->transactionLevel() === 0) {
+            file_put_contents($arguments['directory'].'/'.$arguments['worker'].'.contending', (string) microtime(true));
+        }
+    });
+}
 if (isset($arguments['transaction_attempts'])) {
     config(['scarlett.transaction_attempts' => $arguments['transaction_attempts']]);
 }
@@ -33,16 +47,16 @@ while (! file_exists($arguments['directory'].'/release')) {
     }
     usleep(1000);
 }
-if ($arguments['wait_for_admission_waiter'] ?? false) {
+if (($arguments['wait_for_admission_waiter'] ?? false) && Environment::driver() !== 'sqlite') {
     do {
-        $waiting = DB::selectOne("SELECT COUNT(DISTINCT thread_id) AS total FROM performance_schema.data_locks WHERE object_schema = ? AND object_name = 'scarlett_control' AND lock_status = 'WAITING'", [Environment::DATABASE]);
+        $waiting = Environment::waitingWorkers('scarlett_control');
         if (microtime(true) > $deadline) {
             throw new RuntimeException('First admission waiter was not observed.');
         }
-        if ((int) $waiting->total === 0) {
+        if ($waiting === 0) {
             usleep(1000);
         }
-    } while ((int) $waiting->total === 0);
+    } while ($waiting === 0);
 }
 $started = microtime(true);
 $engine = app(Engine::class);
@@ -125,4 +139,4 @@ $result = match ($arguments['operation']) {
     'finish' => $engine->finish($arguments['step'], $arguments['attempt']),
     'old-outcome' => $engine->decide($arguments['step'], $arguments['attempt'], Decision::fail()),
 };
-echo json_encode(['result' => $result, 'started' => $started, 'ended' => microtime(true)], JSON_THROW_ON_ERROR).PHP_EOL;
+echo json_encode(['result' => $result, 'started' => $started, 'ended' => microtime(true), 'acquired_at' => $acquiredAt], JSON_THROW_ON_ERROR).PHP_EOL;

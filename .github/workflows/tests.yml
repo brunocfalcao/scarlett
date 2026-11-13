@@ -6,8 +6,10 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         php: ['8.4', '8.5']
+        database: ['sqlite', 'mysql', 'pgsql']
     services:
       mysql:
         image: mysql:9.7
@@ -20,14 +22,27 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: testing
+          POSTGRES_DB: scarlett_collision_tests
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U postgres -d scarlett_collision_tests"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     env:
+      SCARLETT_TEST_DRIVER: ${{ matrix.database }}
+      SCARLETT_TEST_USER: ${{ matrix.database == 'pgsql' && 'postgres' || 'root' }}
       SCARLETT_TEST_PASSWORD: testing
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: pdo_mysql, pdo_sqlite
+          extensions: pdo_mysql, pdo_pgsql, pdo_sqlite
           coverage: none
       - run: composer install --no-interaction --prefer-dist
       - run: composer validate --strict

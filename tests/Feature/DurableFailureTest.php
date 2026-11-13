@@ -61,8 +61,11 @@ it('durably handles terminal origins with a stable cause and useful reason exact
     expect($step->fresh()->error)->toBe($reason)->and($flow->fresh()->finished_at)->toBeNull();
     $failure = handleFailure($step->id);
     app(FailureRunner::class)->run($failure->id, $failure->attempt);
+    // JSON object member order is not preserved by every database; types and values are.
+    $record = collect($flow->fresh()->metadata['failures'])->sole();
+    ksort($record);
     expect($failure->status)->toBe(Status::Completed)->and(FailureAwareStep::$hookCalls)->toBe(1)
-        ->and($flow->fresh()->metadata['failures'])->toBe([['name' => 'action', 'cause' => $cause, 'reason' => $reason, 'id' => $failure->id, 'fallback' => false]])
+        ->and($record)->toBe(['cause' => $cause, 'fallback' => false, 'id' => $failure->id, 'name' => 'action', 'reason' => $reason])
         ->and($flow->fresh()->status)->toBe('failed');
 })->with([
     ['fail', 'decided', 'A useful failure reason.'], ['stop', 'decided', 'A useful stop reason.'],
@@ -200,7 +203,8 @@ it('holds the parent hook until an already-running sibling and its hook settle',
     runStep($flow->id, 'first');
     handleFailure($flow->steps()->where('key', 'first')->sole()->id);
     $parent = $flow->steps()->where('key', 'parent')->sole();
-    expect(FailureRecord::where('step_id', $parent->id)->sole()->status)->toBe(Status::Pending);
+    expect((string) $parent->state)->toBe('waitingforchildren')
+        ->and(FailureRecord::where('step_id', $parent->id)->exists())->toBeFalse();
     app(Engine::class)->decide($later->id, $later->attempt, Decision::stop('Later child stopped.'));
     expect(FailureRecord::where('step_id', $parent->id)->sole()->status)->toBe(Status::Pending);
     handleFailure($later->id);

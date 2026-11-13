@@ -21,10 +21,26 @@ class TestCase extends \Orchestra\Testbench\TestCase
 
     protected function defineDatabaseMigrations(): void
     {
-        $connection = DB::connection();
-        if ($connection->getDatabaseName() !== Environment::DATABASE || $connection->selectOne('SELECT DATABASE() AS name')->name !== Environment::DATABASE) {
-            throw new \RuntimeException('Refusing to reset a database outside the Scarlett collision suite.');
+        Environment::assertIsolated();
+        // Laravel's file-backed migrate:fresh truncates the file while PDO is open.
+        // Close every connection before replacing a WAL database and its sidecars.
+        if (Environment::driver() === 'sqlite') {
+            $path = DB::connection()->getDatabaseName();
+            DB::purge();
+            foreach ([$path, $path.'-wal', $path.'-shm'] as $file) {
+                if (file_exists($file)) {
+                    unlink($file);
+                }
+            }
+            touch($path);
+            $this->artisan('migrate', ['--force' => true])->assertExitCode(0);
+        } else {
+            $this->artisan('migrate:fresh', ['--force' => true])->assertExitCode(0);
         }
-        $this->artisan('migrate:fresh', ['--force' => true])->assertExitCode(0);
+        $this->beforeApplicationDestroyed(function (): void {
+            foreach (array_keys(DB::getConnections()) as $name) {
+                DB::purge($name);
+            }
+        });
     }
 }

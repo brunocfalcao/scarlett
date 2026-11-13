@@ -13,7 +13,7 @@ use Scarlett\Tests\Fixtures\AmountMapper;
 require dirname(__DIR__, 2).'/vendor/autoload.php';
 $app = Application::create(options: ['extra' => ['providers' => [ScarlettServiceProvider::class], 'dont-discover' => ['*']]]);
 Environment::configure($app);
-config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql',
+config(['queue.default' => 'database', 'queue.connections.database.connection' => Environment::driver(),
     'scarlett.payload_mappers' => ['amount-v1' => AmountMapper::class]]);
 $mode = $argv[1] ?? null;
 $fault = $mode !== null;

@@ -9,9 +9,10 @@ use Illuminate\Support\Facades\Schema;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
+use Scarlett\Tests\Collision\Environment;
 use Scarlett\Tests\Fixtures\EchoStep;
 
-it('upgrades an existing mysql installation and leaves repeated migrations and workflow data untouched', function () {
+it('upgrades an existing installation and leaves repeated migrations and workflow data untouched', function () {
     $flow = app(Engine::class)->start(new Workflow([controlled('existing')]));
     $step = $flow->steps()->sole();
     $this->artisan('migrate:rollback', ['--step' => collect(glob(__DIR__.'/../../database/migrations/*.php'))->filter(fn ($path) => basename($path) >= '2026_11_13_000002_add_consumer_execution_options.php')->count(), '--force' => true])->assertExitCode(0);
@@ -25,7 +26,7 @@ it('upgrades an existing mysql installation and leaves repeated migrations and w
     expect($flow->fresh()->status)->toBe('completed');
 });
 
-it('keeps case accent and trailing-space keys distinct on mysql', function () {
+it('keeps case accent and trailing-space keys distinct', function () {
     $keys = ['Review', 'review', 'cafe', 'café', 'tail', 'tail '];
     $flow = app(Engine::class)->start(new Workflow(array_map(fn ($key) => controlled($key), $keys)));
     foreach ($keys as $key) {
@@ -35,7 +36,7 @@ it('keeps case accent and trailing-space keys distinct on mysql', function () {
     expect($flow->steps()->pluck('key')->all())->toEqualCanonicalizing($keys);
 });
 
-it('stores future scheduled dates beyond the mysql timestamp range', function () {
+it('stores future scheduled dates beyond 2038', function () {
     $when = Carbon::parse('2040-01-01 12:00:00', config('app.timezone'));
     $flow = app(Engine::class)->start(new Workflow([
         new Node('future', EchoStep::class, notBefore: $when),
@@ -48,14 +49,22 @@ it('stores future scheduled dates beyond the mysql timestamp range', function ()
     expect($step->fresh()->attempt)->toBe($step->attempt);
 });
 
-it('refuses narrowing rollbacks without changing incompatible records', function () {
+it('preserves incompatible records when rolling back database-specific storage changes', function () {
     $flow = app(Engine::class)->start(new Workflow([controlled('Case'), controlled('case')]));
     $keysMigration = require __DIR__.'/../../database/migrations/2026_11_13_000003_preserve_exact_step_keys.php';
-    expect(fn () => $keysMigration->down())->toThrow(QueryException::class);
+    if (Environment::driver() === 'mysql') {
+        expect(fn () => $keysMigration->down())->toThrow(QueryException::class);
+    } else {
+        $keysMigration->down();
+    }
     expect($flow->steps()->pluck('key')->all())->toEqualCanonicalizing(['Case', 'case']);
     $step = $flow->steps()->where('key', 'Case')->sole();
     $step->update(['not_before' => '2040-01-01 00:00:00']);
     $datesMigration = require __DIR__.'/../../database/migrations/2026_11_13_000004_expand_scheduled_date_range.php';
-    expect(fn () => $datesMigration->down())->toThrow(RuntimeException::class, 'storage range');
+    if (Environment::driver() === 'mysql') {
+        expect(fn () => $datesMigration->down())->toThrow(RuntimeException::class, 'storage range');
+    } else {
+        $datesMigration->down();
+    }
     expect($step->fresh()->not_before->year)->toBe(2040);
 });

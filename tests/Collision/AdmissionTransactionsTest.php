@@ -11,6 +11,7 @@ use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\Failures\Coordinator;
 use Scarlett\Models\WorkflowRecord;
+use Scarlett\Tests\Collision\Environment;
 use Scarlett\Tests\Collision\Workers;
 use Scarlett\Tests\Fixtures\FailureAwareStep;
 
@@ -51,7 +52,10 @@ it('orders atomic writes and follow-up admission before deletion without retryin
         'transaction_attempts' => 1,
     ];
     $results = Workers::race($flow->id, [$write, $delete], 'scarlett_control');
-    expect($results[0]['result'])->toBe(! $deletionFirst)->and($results[1]['result'])->toBeTrue()
+    if (Environment::driver() !== 'sqlite') {
+        expect($results[0]['result'])->toBe(! $deletionFirst);
+    }
+    expect($results[0]['result'])->toBeBool()->and($results[1]['result'])->toBeTrue()
         ->and(WorkflowRecord::forSubject('consumer', $subject)->count())->toBe(0)
         ->and(DB::table('consumer_records')->where('id', $subject)->exists())->toBeFalse()
         ->and($unrelated->fresh()->status)->toBe('running');
@@ -69,13 +73,11 @@ it('rejects cancelled action or failure ownership inside an older outer transact
     } else {
         $engine->claim($step->id, $step->attempt);
     }
-    config(['database.connections.concurrent' => config('database.connections.mysql')]);
+    config(['database.connections.concurrent' => config('database.connections.'.Environment::driver())]);
     DB::beginTransaction();
     try {
         expect((string) $step->fresh()->state)->toBe($failureHook ? 'failed' : 'running');
-        DB::setDefaultConnection('concurrent');
-        $engine->cancelWorkflow($flow->id);
-        DB::setDefaultConnection('mysql');
+        Environment::concurrentCommit(fn () => $engine->cancelWorkflow($flow->id));
         $written = false;
         $write = function () use (&$written): void {
             $written = true;
@@ -85,7 +87,7 @@ it('rejects cancelled action or failure ownership inside an older outer transact
             : $engine->whileCurrent($step->id, $step->attempt, $write);
         expect($accepted)->toBeFalse()->and($written)->toBeFalse();
     } finally {
-        DB::setDefaultConnection('mysql');
+        DB::setDefaultConnection(Environment::driver());
         DB::rollBack();
         DB::purge('concurrent');
     }

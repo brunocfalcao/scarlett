@@ -118,3 +118,46 @@ it('attributes denied completion guards to their owner without rolling back chil
     expect(statesOf($flow->id)['owner'])->toBe($allowed ? 'approved' : 'failed');
     expect($flow->fresh()->status)->toBe($allowed ? 'completed' : 'failed');
 })->with([[false, false], [true, false], [false, true], [true, true]]);
+
+it('settles each descendant rescue branch before failing its parent', function () {
+    Queue::fake();
+    $flow = app(Engine::class)->start(new Workflow([
+        controlled('grandparent'), controlled('parent', parent: 'grandparent'),
+        controlled('child', 'fail', parent: 'parent'),
+        controlled('child-rescue', rescues: 'child'),
+        controlled('parent-rescue', rescues: 'parent'),
+        controlled('grandparent-rescue', rescues: 'grandparent'),
+        controlled('after', stage: 1),
+    ]));
+    runStep($flow->id, 'grandparent');
+    runStep($flow->id, 'parent');
+    expect(statesOf($flow->id))->toBe([
+        'after' => 'pending', 'child' => 'queued', 'child-rescue' => 'pending',
+        'grandparent' => 'waitingforchildren', 'grandparent-rescue' => 'pending',
+        'parent' => 'waitingforchildren', 'parent-rescue' => 'pending',
+    ]);
+    runStep($flow->id, 'child');
+    expect(statesOf($flow->id))->toBe([
+        'after' => 'pending', 'child' => 'failed', 'child-rescue' => 'queued',
+        'grandparent' => 'waitingforchildren', 'grandparent-rescue' => 'pending',
+        'parent' => 'waitingforchildren', 'parent-rescue' => 'pending',
+    ]);
+    // Premature deliveries cannot construct or run an ancestor's rescue.
+    runStep($flow->id, 'grandparent-rescue');
+    runStep($flow->id, 'parent-rescue');
+    runStep($flow->id, 'child-rescue');
+    expect(statesOf($flow->id))->toBe([
+        'after' => 'pending', 'child' => 'failed', 'child-rescue' => 'completed',
+        'grandparent' => 'waitingforchildren', 'grandparent-rescue' => 'pending',
+        'parent' => 'failed', 'parent-rescue' => 'queued',
+    ])->and($flow->fresh()->status)->toBe('running');
+    runStep($flow->id, 'parent-rescue');
+    expect(statesOf($flow->id))->toBe([
+        'after' => 'cancelled', 'child' => 'failed', 'child-rescue' => 'completed',
+        'grandparent' => 'failed', 'grandparent-rescue' => 'queued',
+        'parent' => 'failed', 'parent-rescue' => 'completed',
+    ]);
+    runStep($flow->id, 'grandparent-rescue');
+    expect($flow->fresh()->status)->toBe('failed')
+        ->and(statesOf($flow->id)['after'])->toBe('cancelled');
+});

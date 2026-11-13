@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 — 2026-11-14
+
+First public tagged release. The 0.1.x entries below record untagged development
+milestones included in this release.
 
 ### Features
 
@@ -22,6 +25,9 @@
 
 ### Fixes
 
+- Recover unsent deliveries even when MySQL reports no changed values within the same timestamp; keep active publication leases and recent deliveries protected.
+- Complete cascading recovery from the leaves upward, including nested and staged rescue branches, duplicate deliveries, expired leases and concurrently finishing siblings.
+- Use current locked outcomes for progression, cancellation, terminal-hook ordering and retention inside older MySQL transaction snapshots.
 - Prevent action replay after result persistence failure; verify the restored durable result consistently and recheck ownership after decoding.
 - Validate completion transitions and attribute rejected completion guards to their owning step; preserve exact parent keys, including zero-valued parent/rescue result bindings.
 - Keep publication faults recoverable, release early queue jobs until due, and fail unexpected transport errors/timeouts independently of cache counters.
@@ -31,12 +37,13 @@
 
 ### Maintenance
 
+- Run the complete Pest suite on SQLite, MySQL and PostgreSQL, including package migrations, real queue workers and database-specific contention checks; retain all three databases in the PHP 8.4/8.5 CI matrix.
 - [IMPROVED] Simplify the README around runnable Laravel examples and preserve the full reference in a linked guide.
 - Add Scarlett branding, visual workflow diagrams and a Laravel-focused README with a runnable quick start.
 - Disclose AI-assisted development with a README badge and transparency note.
 - Reduce repeated graph hydration and publication lookups; cache validated state configuration and narrow recovery candidates.
 - Expand engine, consumer, migration, concurrent-ownership and real-worker regression coverage.
-- Document progressive Freshsites migration, package upgrades, failure semantics and consumer acceptance gates.
+- Document progressive consumer migration, package upgrades, failure semantics and consumer acceptance gates.
 
 ## 0.1.1 — 2026-11-13
 

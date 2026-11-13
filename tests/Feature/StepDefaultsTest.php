@@ -20,7 +20,13 @@ it('snapshots class defaults without constructing future steps and lets node opt
     expect(ControlledStep::$constructed)->toBe([]);
     $class = $flow->steps()->where('key', 'class')->sole();
     $node = $flow->steps()->where('key', 'node')->sole();
-    expect($class->execution)->toBe(['worker_timeout' => 40, 'lease_seconds' => 60, 'retry' => ['attempts' => 2, 'backoff_seconds' => [7]], 'verification' => ['attempts' => 4, 'backoff_seconds' => [11]]]);
+    // Normalize object member order only; preserve scalar types and ordered backoff lists.
+    $snapshot = $class->execution;
+    foreach (['retry', 'verification'] as $policy) {
+        ksort($snapshot[$policy]);
+    }
+    ksort($snapshot);
+    expect($snapshot)->toBe(['lease_seconds' => 60, 'retry' => ['attempts' => 2, 'backoff_seconds' => [7]], 'verification' => ['attempts' => 4, 'backoff_seconds' => [11]], 'worker_timeout' => 40]);
     expect($node->executionOptions()['retry']['attempts'])->toBe(5)
         ->and($node->executionOptions()['worker_timeout'])->toBe(config('scarlett.worker_timeout'));
     config(['scarlett.worker_timeout' => 10]);

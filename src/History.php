@@ -108,6 +108,6 @@ final class History
 
     private function settled(WorkflowRecord $workflow): bool
     {
-        return $workflow->finished_at !== null && ! $workflow->failures()->unfinished()->exists() && $workflow->steps()->lockForUpdate()->get()->every(fn ($step): bool => $step->state::phase() === Phase::Settled);
+        return $workflow->finished_at !== null && $workflow->failures()->unfinished()->lockForUpdate()->first() === null && $workflow->steps()->lockForUpdate()->get()->every(fn ($step): bool => $step->state::phase() === Phase::Settled);
     }
 }
