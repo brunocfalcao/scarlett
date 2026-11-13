@@ -7,30 +7,60 @@ namespace Scarlett;
 use DateTimeInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use Scarlett\Models\WorkflowRecord;
 use Scarlett\States\Phase;
 
 final class History
 {
+    public const DEFAULT_BATCH_SIZE = 100;
+
     public function archive(string $workflowId): bool
     {
         return DB::transaction(function () use ($workflowId): bool {
             $workflow = WorkflowRecord::whereKey($workflowId)->lockForUpdate()->firstOrFail();
-            if (! $this->settled($workflow)) {
-                return false;
-            }
-            $workflow->update(['archived_at' => now()]);
 
-            return true;
+            return $this->archiveLocked($workflow);
         });
     }
 
-    /** Retention age is caller-supplied; no active workflow is eligible. */
-    public function purge(DateTimeInterface $before): int
+    public function archiveBefore(DateTimeInterface $before, int $batchSize = self::DEFAULT_BATCH_SIZE): int
     {
+        $this->validateBatchSize($batchSize);
+        $before = Carbon::instance($before)->setTimezone(config('app.timezone'));
+        $archived = 0;
+        $candidates = WorkflowRecord::whereNull('archived_at')->where('finished_at', '<', $before);
+        foreach ($candidates->lazyById($batchSize) as $candidate) {
+            $archived += DB::transaction(function () use ($candidate, $before): int {
+                $workflow = WorkflowRecord::whereKey($candidate->id)->lockForUpdate()->first();
+                if ($workflow === null || $workflow->finished_at === null || $workflow->finished_at >= $before) {
+                    return 0;
+                }
+
+                return (int) $this->archiveLocked($workflow);
+            });
+        }
+
+        return $archived;
+    }
+
+    private function archiveLocked(WorkflowRecord $workflow): bool
+    {
+        if ($workflow->archived_at !== null || ! $this->settled($workflow)) {
+            return false;
+        }
+        $workflow->update(['archived_at' => now()]);
+
+        return true;
+    }
+
+    /** Retention age is caller-supplied; no active workflow is eligible. */
+    public function purge(DateTimeInterface $before, int $batchSize = self::DEFAULT_BATCH_SIZE): int
+    {
+        $this->validateBatchSize($batchSize);
         $before = Carbon::instance($before)->setTimezone(config('app.timezone'));
         $removed = 0;
-        foreach (WorkflowRecord::where('archived_at', '<', $before)->cursor() as $candidate) {
+        foreach (WorkflowRecord::where('archived_at', '<', $before)->lazyById($batchSize) as $candidate) {
             $removed += DB::transaction(function () use ($candidate, $before): int {
                 $workflow = WorkflowRecord::whereKey($candidate->id)->lockForUpdate()->first();
                 if (! $workflow || ! $this->settled($workflow) || $workflow->archived_at === null || $workflow->archived_at >= $before) {
@@ -43,6 +73,13 @@ final class History
         }
 
         return $removed;
+    }
+
+    private function validateBatchSize(int $batchSize): void
+    {
+        if ($batchSize < 1) {
+            throw new InvalidArgumentException('Retention batch size must be a positive integer.');
+        }
     }
 
     /** Explicit deletion; includingRunning withdraws authority atomically by removing its records. */

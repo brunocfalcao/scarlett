@@ -4,6 +4,8 @@
 
 ### Features
 
+- Package retention commands `scarlett:archive` and `scarlett:purge`, with explicit ages, bounded batches and locked live-work protection. Repeated archiving preserves the original archive timestamp.
+
 - Atomic subject deletion across all workflow lanes and history, with pre-revocation vetoes and related-subject guards for consumer-owned checks.
 
 - Atomic subject-slot replacement with rollback vetoes, current-workflow lookup and revocation of old execution ownership.

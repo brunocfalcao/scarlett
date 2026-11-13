@@ -1,0 +1,23 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Scarlett\Commands;
+
+use Illuminate\Support\Carbon;
+use Scarlett\History;
+
+final class PurgeCommand extends RetentionCommand
+{
+    protected $signature = 'scarlett:purge
+        {--minutes= : Purge settled workflows archived more than this many minutes ago}
+        {--days= : Purge settled workflows archived more than this many days ago}
+        {--batch= : Maximum workflows fetched per batch}';
+
+    protected $description = 'Permanently purge old archived history while preserving live work';
+
+    protected function retain(History $history, Carbon $cutoff, int $batchSize): string
+    {
+        return 'Purged '.$history->purge($cutoff, $batchSize).' workflow(s).';
+    }
+}

@@ -444,15 +444,49 @@ connection. Lease expiry cannot stop an external call already in progress.
 
 | `Scarlett\History` operation | Behavior |
 | --- | --- |
-| `archive($workflowId)` | Requires an existing settled workflow; returns false for active work, throws if missing |
+| `archive($workflowId)` | Archives settled work once; returns false for active/already archived work, throws if missing |
+| `archiveBefore($before, $batchSize = 100)` | Archives settled workflows finished before the cutoff in bounded batches |
 | `delete($workflowId, includingRunning: false)` | Deletes settled history; explicit `true` revokes unfinished work by removing it |
-| `purge($before)` | Purges eligible archived history before your cutoff; protects active work |
+| `purge($before, $batchSize = 100)` | Purges eligible history archived before your cutoff in bounded batches; protects active work |
 
 `scarlett_history` records transitions, attempt identities, times and reasons.
 Steps retain error/counter details, latest-claim `started_at` and settlement
 `finished_at`. Workflow settlement and history cleanup also wait for durable failure
 handlers. Inspect them through `WorkflowRecord::failures()`. There is no automatic
 retention age.
+
+### Schedule retention
+
+The package registers two Artisan commands. Supply exactly one age option,
+`--minutes=N` or `--days=N`, as a non-negative integer. There is no default age.
+Both accept `--batch=N` (positive integer, default `100`); this limits each query's
+page size, not the total number processed. Each run visits all eligible history.
+
+```bash
+php artisan scarlett:archive --minutes=5
+php artisan scarlett:purge --days=30
+```
+
+Archive compares workflow `finished_at`; purge compares `archived_at`. Both use
+a fixed cutoff for the run and require timestamps **strictly older** than it.
+Each workflow is locked and its eligibility rechecked. Live steps and unfinished
+failure handlers are protected. Repeated/overlapping runs are safe; archiving
+again never resets the original archive timestamp. Purging permanently removes
+the workflow and its step, transition, delivery and failure history.
+
+For example, a consumer can choose these ages in `routes/console.php`:
+
+```php
+use Illuminate\Support\Facades\Schedule;
+
+Schedule::command('scarlett:archive --minutes=5')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('scarlett:purge --days=30')->daily()->withoutOverlapping();
+```
+
+The application owns the schedule and ages; Scarlett registers no schedule.
+Commands report the number processed, including zero on an empty/repeated run.
+Invalid options exit with code `2` before any writes. Completed batches remain
+committed if a later database error interrupts a run; rerunning is safe.
 
 ## Extend states
 

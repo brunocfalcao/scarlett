@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Orchestra\Testbench\Foundation\Application;
 use Scarlett\Definition\Node;
@@ -32,6 +33,11 @@ while (! file_exists($arguments['directory'].'/release')) {
 $started = microtime(true);
 $engine = app(Engine::class);
 $result = match ($arguments['operation']) {
+    'retention' => (function () use ($arguments): array {
+        $exit = Artisan::call($arguments['command'], $arguments['options']);
+
+        return ['exit' => $exit, 'output' => trim(Artisan::output())];
+    })(),
     'delete-subject' => $engine->deleteSubject(new Subject('consumer', $arguments['subject']), function ($locked) use ($arguments) {
         if (($arguments['check_running'] ?? false) && $locked->contains(fn ($flow) => $flow->steps->contains(fn ($step) => (string) $step->state === 'running'))) {
             return false;

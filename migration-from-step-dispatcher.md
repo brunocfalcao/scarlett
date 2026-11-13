@@ -231,7 +231,15 @@ current source before edits. This package preparation does not migrate that app.
    transactionally reject the missing site; deletion is not a permanent engine ban.
 9. **Replace operations after cutover.** Replace `freshsites:dispatch-daemon`,
    `steps:recover-stale`, archive/purge commands and their process-manager wiring
-   with Scarlett workers/recovery and consumer retention commands. The archived
+   with Scarlett workers/recovery and package retention commands:
+   `scarlett:archive --minutes=5` and `scarlett:purge --days=30` preserve the chosen
+   Freshsites ages. Schedule them in the consumer; the package does not register
+   schedules. Both also accept either `--minutes=N` or `--days=N` (exactly one,
+   non-negative integer), and `--batch=N` (positive integer, default `100`).
+   The batch option limits query size, not total processed. Archive uses workflow
+   finish time; purge uses the original archive time, with strict older-than
+   cutoffs and locked settlement checks. Live work and unfinished failure handlers
+   are preserved; repeated/overlapping runs are safe. The archived
    marker keeps data in Scarlett tables; filter it deliberately in live listings.
    Preserve all business schedules and old-engine history until retention allows
    removal. Distinguish old/new workflow IDs during staged migration; keep tests
