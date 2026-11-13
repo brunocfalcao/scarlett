@@ -1,241 +1,464 @@
-# Scarlett
+<p align="center">
+  <img src="docs/assets/scarlett-icon.png" alt="Scarlett — connected steps forming an S" width="144" height="144">
+</p>
 
-Outcome-driven workflows for Laravel 13 and PHP 8.4+. MIT licensed.
+<h1 align="center">Scarlett</h1>
 
-Scarlett commits each outcome and identifies the next eligible work immediately.
-There is no scheduler tick in normal progression. Laravel queue workers still
-fetch jobs normally. Recovery may run periodically to replay lost deliveries and
-replace expired execution attempts.
+<p align="center"><strong>Give your Laravel workflows a next step.</strong></p>
+<p align="center">Typed PHP steps. Durable results. Progression driven by outcomes.</p>
 
-## Installation
+<p align="center">
+  <a href="https://github.com/brunocfalcao/scarlett/actions/workflows/tests.yml"><img src="https://github.com/brunocfalcao/scarlett/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
+  <img src="https://img.shields.io/badge/Laravel-13-FF2D20" alt="Laravel 13">
+  <img src="https://img.shields.io/badge/PHP-8.4%2B-777BB4" alt="PHP 8.4 or newer">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-334155" alt="MIT license"></a>
+</p>
 
-The repository is a Composer package. Until it is registered on Packagist, add a
-VCS repository for `https://github.com/brunocfalcao/scarlett` in your application's
-`composer.json`, then require `brunocfalcao/scarlett:dev-main`.
-For local development use a Composer path repository with symlinking enabled.
+<p align="center">
+  <a href="#install-in-laravel">Install</a> ·
+  <a href="#your-first-workflow">Quick start</a> ·
+  <a href="#shape-your-workflow">Workflow shapes</a> ·
+  <a href="#retries-verification-and-throttling">Failure handling</a> ·
+  <a href="#operate-in-laravel">Operations</a>
+</p>
+
+---
+
+Scarlett coordinates multi-step work inside your Laravel application. Define the
+steps and their relationships up front. When an outcome is committed, Scarlett
+identifies eligible successors and publishes their jobs after the transaction commits.
+
+**Normal progression never waits for a scheduler tick.** Laravel queue workers
+still fetch jobs normally; queue capacity and explicit delays determine when work
+actually starts. Periodic recovery repairs interrupted execution and lost deliveries.
+
+```mermaid
+flowchart LR
+    App["Your Laravel application"] -->|"start a workflow"| Engine["Scarlett"]
+    Engine -->|"persist steps and delivery intents"| DB[("Application database")]
+    Engine -->|"publish after commit"| Queue["Laravel queue"]
+    Queue --> Worker["Queue worker"]
+    Worker -->|"execute a typed step"| Outcome["Persist result and outcome"]
+    Outcome -->|"identify next eligible steps"| Engine
+    classDef accent fill:#fff1f2,stroke:#be123c,color:#881337
+    class Engine,Outcome accent
+```
+
+| You define | Scarlett coordinates | Laravel provides |
+| --- | --- | --- |
+| Step classes and typed inputs | Late construction and result binding | Service container and Eloquent |
+| Stages, children and rescue branches | Dependencies and durable progression | Database transactions and queues |
+| Retry, verification and throttle policies | Attempts, leases and recovery | Queue workers and scheduled commands |
+
+## Install in Laravel
+
+Requires **Laravel 13**, **PHP 8.4+**, and an application database. MySQL is the
+supported database for concurrent deployments. SQLite is useful for local and
+isolated tests; PostgreSQL has not been verified.
+
+### 1. Add the package
+
+Add this repository entry to your application's existing `composer.json`
+`repositories` configuration:
+
+```json
+{
+    "type": "vcs",
+    "url": "https://github.com/brunocfalcao/scarlett"
+}
+```
+
+Then install from the development branch:
 
 ```sh
 composer require brunocfalcao/scarlett:dev-main
 php artisan migrate
+```
+
+Laravel discovers Scarlett's service provider automatically. It registers the
+configuration, package migrations and `scarlett:recover` command. For local package
+development, Composer also supports a symlinked [path repository](https://getcomposer.org/doc/05-repositories.md#path).
+
+### 2. Configure your queue
+
+Publish the configuration when you want to customize defaults:
+
+```sh
 php artisan vendor:publish --tag=scarlett-config
+```
+
+Choose an asynchronous queue connection already configured in your Laravel app.
+For example, with Laravel's database queue and its jobs table installed:
+
+```dotenv
+QUEUE_CONNECTION=database
+SCARLETT_QUEUE=scarlett
+```
+
+Before starting workers, set that connection's `retry_after` in `config/queue.php`
+above Scarlett's worker timeout. Package defaults are **240 seconds for the worker**
+and **300 seconds for the execution lease**. A queue `retry_after` of **330 seconds**
+is one compatible starting point; tune all three for your workload. Per-step
+overrides must also fit the queue settings. See [Laravel's timeout guidance](https://laravel.com/docs/13.x/queues#job-expirations-and-timeouts).
+
+```sh
 php artisan queue:work --queue=scarlett
 ```
 
-Provider discovery registers configuration, migrations, and `scarlett:recover`.
-Run the consuming application's ordinary `php artisan migrate` after every package
-update. Do not publish/copy package migrations. Stable filenames let Laravel apply
-only missing migrations; upgrades use new additive files. Existing schema files
-are never rewritten. Apply schema changes before starting updated workers.
-See the [migration guide](migration-from-step-dispatcher.md#install-and-upgrade-the-package).
-Use one application database connection for Scarlett's records and transactions.
-MySQL is the supported concurrent deployment database. SQLite is useful for local
-and isolated tests; PostgreSQL has not been verified in this version.
+`SCARLETT_QUEUE_CONNECTION` optionally overrides the application's default queue
+connection. Your worker must listen to the same connection and queue. The `sync`
+connection is suitable for immediate examples, but cannot provide delayed retries.
 
-## Define steps and workflows
+> **Package upgrades:** run ordinary `php artisan migrate` after updating Scarlett.
+> Migrations load from the package; do not copy or publish them into your app.
+> Pause admission and drain/stop existing workers before a code/schema upgrade,
+> apply migrations, then start updated workers. Existing migration filenames stay
+> stable; new schema changes use additive migrations.
+
+## Your first workflow
+
+Create two ordinary PHP classes under `app/Workflows/Steps/`. They extend
+`Scarlett\Step`; Scarlett supplies the queue job that executes them.
+
+**`app/Workflows/Steps/NormalizeTitle.php`**
 
 ```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Workflows\Steps;
+
 use Scarlett\Step;
-use Scarlett\Definition\{Node, Workflow};
+
+final class NormalizeTitle extends Step
+{
+    public function __construct(private string $title) {}
+
+    public function handle(): string
+    {
+        return trim($this->title);
+    }
+}
+```
+
+**`app/Workflows/Steps/CreateSlug.php`**
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Workflows\Steps;
+
+use Illuminate\Support\Str;
+use Scarlett\Step;
+
+final class CreateSlug extends Step
+{
+    public function __construct(private string $title) {}
+
+    public function handle(): string
+    {
+        return Str::slug($this->title);
+    }
+}
+```
+
+Start the workflow from an application service, controller action or Artisan command:
+
+```php
+use App\Workflows\Steps\CreateSlug;
+use App\Workflows\Steps\NormalizeTitle;
+use Scarlett\Definition\Node;
+use Scarlett\Definition\Workflow;
 use Scarlett\Facades\Scarlett;
 use Scarlett\Inputs\FromResult;
 
-final class DoubleNumber extends Step
-{
-    public function __construct(private int $value) {}
-
-    public function handle(): int
-    {
-        return $this->value * 2;
-    }
-}
-
 $workflow = Scarlett::start(new Workflow([
-    new Node('first', DoubleNumber::class, inputs: ['value' => 21]),
-    new Node('second', DoubleNumber::class, stage: 1,
-        inputs: ['value' => new FromResult('first')]),
+    new Node('title', NormalizeTitle::class, inputs: [
+        'title' => '  Hello Laravel  ',
+    ]),
+    new Node('slug', CreateSlug::class, stage: 1, inputs: [
+        'title' => new FromResult('title'),
+    ]),
 ]));
+
+$workflowId = $workflow->id;
 ```
 
-A `Node` stores a class reference and named input bindings. Definition validation
-uses reflection only. It never constructs a business step or resolves a service.
-The second constructor runs only after the first outcome and result are committed.
+The first step returns `Hello Laravel`; the second receives that committed value
+and returns `hello-laravel`.
 
-Lower stages precede higher stages within a sibling group. Equal-stage siblings
-run in parallel; every earlier sibling is a prerequisite. `parent` attaches a
-predefined child to another node. A parent performs and verifies its action, then
-waits for its children. Children may bind the parent's committed action result.
-`rescues` creates a recovery root activated by the named step's definitive failure
-or stop. Recovery roots can have their own stages and predefined children.
+### Construction happens when the step can run
 
-`priority`, `queue`, and `connection` control publication order and queue routing.
-Priority never overrides dependencies or preempts running work. Queue workers and
-transport capacity determine actual execution order after publication.
+A node stores a **class reference and named bindings**, not a constructed business
+object. Validation uses reflection without constructing steps or resolving services.
 
-## Consumer execution options
+```mermaid
+sequenceDiagram
+    participant App as Laravel app
+    participant Engine as Scarlett
+    participant First as NormalizeTitle
+    participant Next as CreateSlug
+    App->>Engine: Start both node definitions
+    Note over Engine,Next: CreateSlug has not been constructed
+    Engine->>First: Resolve inputs and construct
+    First-->>Engine: Return "Hello Laravel"
+    Engine->>Engine: Save result, verify, commit completion
+    Engine->>Next: Resolve FromResult and construct
+    Next-->>Engine: Return "hello-laravel"
+```
 
-`Node::notBefore` accepts an absolute `DateTimeInterface`. Work waits for both its
-scheduled time and its prerequisites. Place it on a parent/root to delay the
-subtree. Use a real asynchronous queue; actual start also depends on capacity.
-Recurrence and calendar windows stay in the consuming application's scheduler.
+Keep constructors free of external side effects: input preparation can repeat.
+Use a public, non-static `handle()` with your own typed parameters and return type.
+Named inputs can bind constructor or handler parameters; defaults and variadic
+lists are supported. Unknown/missing inputs and reference parameters are rejected.
+Literal types are checked at admission; deferred values are checked at execution.
+Scalar values are not silently coerced.
 
-`Node::execution` accepts `Definition\ExecutionOptions`: `workerTimeout`,
-`leaseSeconds`, `attempts`, `backoffSeconds`, `verificationAttempts`, and
-`verificationBackoffSeconds`. Supply values from consumer configuration. Omitted
-values use package defaults. Effective settings are persisted when the workflow
-starts, so later config changes do not alter active budgets. Timeout must be
-shorter than the lease, and transport visibility/retry_after must exceed timeout.
+## Shape your workflow
 
-`Workflow` accepts optional `subjectType` and `subjectId` strings (both or neither)
-and JSON `metadata`. These are consumer-owned labels, not serialized models or
-foreign keys. `WorkflowRecord::forSubject($type, $id)` finds all related workflows,
-including archived ones. Different independent workflows can share a subject.
+### Sequential and parallel stages
 
-## Lifecycle
+Lower stages complete before higher stages **within the same sibling group**.
+Equal-stage siblings are eligible together; actual concurrency depends on workers.
 
-Extend `Step` and declare a public, non-static `handle` method with your own typed
-parameters and return type. Constructor and handler arguments come from explicit
-named inputs. Parameters typed exactly as `Execution\Context` are supplied by the
-engine in constructors and handlers; never bind them as inputs. Defaults and variadic lists are supported. Reference parameters and
-unknown/missing input names are rejected. Unambiguous literal scalar/array types are checked before admission; service, predecessor and mapper-defined values remain resolved and type-checked at execution. Scalar types are not silently coerced.
+```mermaid
+flowchart LR
+    Start(["Start"]) --> Content["Fetch content · stage 0"]
+    Start --> Metadata["Fetch metadata · stage 0"]
+    Content --> Compose["Compose draft · stage 1"]
+    Metadata --> Compose
+    Compose --> Finish(["Complete"])
+    classDef accent fill:#fff1f2,stroke:#be123c,color:#881337
+    class Compose accent
+```
 
-Optional hooks:
+All earlier siblings are prerequisites, even when their results are not inputs.
+`FromResult` supplies data; **stages establish sibling ordering**. A reference to
+another same-stage sibling is not a valid prerequisite binding.
 
-- `before(Context): ?Decision` can skip, stop, fail, retry, throttle, or supply an
-  acceptable result. Returning null proceeds to the action.
-- `verify(Context, mixed $result): bool` must return true before completion.
-  Every verification receives the decoded saved result, including the first pass.
-  Verification retries never repeat the action.
-- `onException(Throwable, Context): Decision` classifies errors from the constructed
-  action, precheck or throttle. The default retries within the configured budget.
-  Input resolution/construction errors use the configured input exception handler. Result-saving
-  errors fail without retrying the action; result restoration and verification
-  errors use the separate verification budget. Accepted results still verify.
-- `throttle(): ?Throttle` supplies a policy whose `delay(Context)` returns null
-  to proceed or a delay in seconds. Throwing `Exceptions\Throttled` also defers
-  work without consuming failure retries. A zero-second throttle waits for
-  `scarlett.minimum_throttle_seconds` (default 1, a positive integer). Explicit
-  positive throttle delays and ordinary zero-second retries remain unchanged.
+### Parents, children and rescue branches
 
-`Policies\ExceptionHandler` is a reusable base for handlers delegated to from
-`onException`. Before an instance exists, `scarlett.input_exception_handler` selects
-an `ExceptionHandler` (default `Policies\InputExceptionHandler`). It retries within
-the step's existing retry budget; after action persistence, preparation failures use
-the verification budget. `scarlett.input_terminal_exceptions` keeps invalid arguments,
-missing records, invalid service bindings and PHP programming errors terminal by
-default. Consumers may extend that list or replace the handler for their own failure
-classification. Preparation handlers cannot supply a successful result without a
-step instance. Constructors should remain free of external side effects because
-preparation can repeat. `Policies\RetryPolicy` may be replaced through configuration.
-`Context` exposes workflow/step/attempt identities, failure count, `heartbeat()`
-and `isCurrent()` for cooperative long-running work. `canRetry()` checks whether
-another business attempt remains after the current attempt fails.
-`whileCurrent(callable)` runs database writes under the workflow lock only while
-the attempt still owns execution. Acquire consumer locks inside that callback and
-recheck consumer-specific ownership. Keep external calls outside it. All affected
-records must share the database connection. See the migration guide for lock order.
+Define the whole tree before starting. A parent runs and verifies its own action,
+then waits for its children. Children may read the parent's committed action result.
+A `rescues` node becomes eligible when its target definitively fails or stops.
 
-Required terminal business updates belong in predefined `rescues` nodes: neither
-an exhausted verification nor a killed worker is guaranteed to run `onException`.
+```mermaid
+flowchart TD
+    Parent["Import action and verification"] -->|"success"| Children["Run predefined children"]
+    Children --> A["Validate rows · stage 0"]
+    Children --> B["Validate assets · stage 0"]
+    A --> Complete["Parent completes when all children succeed"]
+    B --> Complete
+    Parent -.->|"failure or stop"| Rescue["Record failure · rescues import"]
+    A -.->|"failure propagates to parent"| Rescue
+    B -.->|"failure propagates to parent"| Rescue
+    classDef recovery fill:#fff7ed,stroke:#c2410c,color:#7c2d12
+    class Rescue recovery
+```
 
-Skip counts as concluded and produces no result. A skipped parent skips its
-unstarted descendants. Stop/failure cancels dependent unstarted work and activates
-applicable recovery roots. Cancellation never interrupts a running action.
-Failure propagates immediately to waiting parents, while already-running siblings
-finish under their own ownership. Successful recovery is observable as separate
-work; it does not rewrite the original failure or reopen cancelled successors.
-Unused recovery branches are skipped. Workflow status remains failed if any step
-has failure semantics, including when its recovery succeeds.
+| Node option | Meaning |
+| --- | --- |
+| `stage` | Order siblings; the default is `0`. |
+| `parent: 'import'` | Attach a predefined child to `import`. |
+| `rescues: 'import'` | Attach a recovery root to `import`; it may have its own children. |
+| `notBefore` | Earliest absolute start time, using a `DateTimeInterface`. Prerequisites must also be ready. |
+| `priority` | Prioritize publication among eligible nodes; never bypass dependencies. |
+| `queue`, `connection` | Route the node to a Laravel queue and connection. |
+| `execution` | Persist per-step timeouts and retry settings when the workflow starts. |
 
-## Typed inputs and results
+Skip produces no result and skips unstarted descendants. Failure/stop cancels
+unstarted dependent work; already-running siblings retain their own ownership.
+Cancellation revokes authority but cannot interrupt an external call already running.
+Unused rescue branches are skipped. **A successful rescue does not erase the original
+failure, reopen cancelled successors, or turn a failed workflow into a successful one.**
 
-Literal scalars, arrays, null, dates and collections use a versioned JSON codec.
-Dates restore as `DateTimeImmutable` with their named timezone; collections restore as Support collections. Payload version 2 preserves timezone names and still reads version 1 records (which retain their original fixed offsets).
-Register backed enums under `scarlett.enums` using stable aliases. Register DTO or
-value-object mappers under `scarlett.payload_mappers`; each mapper implements
-`Contracts\PayloadMapper`. The representation returned by a mapper must itself
-be encodable. Version your aliases when changing a mapper's representation.
+Dynamic child creation and separate table-prefix execution scopes are deferred.
+Recurring schedules and calendar windows belong in your Laravel application.
 
-Use `Inputs\Service(Foo::class)` for explicit execution-time container resolution.
-Use `Inputs\ModelReference('alias', $id)` with `scarlett.models` for current model
-data. A deleted referenced model fails clearly. For snapshots pass an explicit
-array/DTO of required attributes. Bare Eloquent models, arbitrary objects, resources
-and closures are rejected. Queue payloads contain step/attempt identities, not
-business objects. A skipped predecessor cannot fabricate a missing result.
+## Pass Laravel data safely
 
-`FromResult` is a top-level named binding to a prerequisite result, parent action,
-or rescue target. It does not dynamically evaluate closures or arbitrary expressions.
-Combine complex predecessor values in a typed DTO inside a step.
+Queue payloads carry step and attempt identities. Business inputs and results use
+Scarlett's versioned JSON representation and are restored when execution begins.
 
-## State extensions
+| Data you need | Binding or configuration | When it is resolved |
+| --- | --- | --- |
+| Literal scalar, array or null | Named `inputs` value | Saved at admission |
+| A prerequisite's result | `new FromResult('title')` | After the prerequisite produces its result |
+| A container service | `new Service(MyService::class)` from `Scarlett\Inputs` | At execution, through Laravel's container |
+| A current Eloquent record | `new ModelReference('article', $id)` from `Scarlett\Inputs`; register the model in `scarlett.models` | At execution; missing records fail clearly |
+| A snapshot | Explicit array or mapped DTO | Captured when supplied |
+| A DTO/value object | Implement `Scarlett\Contracts\PayloadMapper`; register in `scarlett.payload_mappers` | Encoded for storage, restored for execution |
+| A backed enum | Register a stable alias in `scarlett.enums` | Encoded and restored through the alias |
+| Dates and collections | Built-in codec | Dates become `DateTimeImmutable`; collections become Support collections |
 
-Persisted step states use Spatie model-states. Register concrete classes extending
-`States\StepState` under `scarlett.states`, each with a unique stable `$name`.
-Declare phase, dependency satisfaction, recovery activation, and subtree skipping
-semantics. Add explicit allowed transition pairs under `scarlett.transitions`;
-a third entry may name a Spatie transition guard class. Configurations remain
-compatible with Laravel configuration caching.
+Bare Eloquent models, arbitrary objects, closures and resources are rejected.
+Dates preserve named timezones; the codec also reads older version-1 date payloads.
+Version mapper aliases when their representation changes. A mapper's encoded value
+must itself be supported by the codec.
 
-For example, extend `States\Completed` with `$name = 'approved'`, register it,
-allow `Running -> Approved`, and return `Decision::complete($result, Approved::class)`
-from an acceptance hook. For parents also allow `WaitingForChildren -> Approved`.
-The same semantic methods govern ordering, aggregation, recovery and retention.
-A new operational phase needs an implementation and tests, not just a state label.
-Settled states cannot be reopened. Never mutate stored engine states directly;
-use the lifecycle and engine controls so ownership and delivery guarantees apply.
+`FromResult` is a top-level named binding to an earlier sibling, parent action or
+rescue target. It does not evaluate closures or expressions. A rescue target or
+skipped step may have no result; do not require one unless that path guarantees it.
+Combine complex predecessor values inside a step, using your own typed DTO.
 
-## Recovery and operations
+## Retries, verification and throttling
+
+The lifecycle separates **doing the work**, **saving its result**, and **confirming
+that the saved result is acceptable**.
+
+| Extension point | Purpose | Default |
+| --- | --- | --- |
+| `before(Context): ?Decision` | Skip, stop, fail, retry, throttle or supply a result | Return `null` to run the action |
+| `handle(...)` | Perform your business action | Implement in each step |
+| `verify(Context, mixed $result): bool` | Confirm the decoded durable result | Return `true` |
+| `onException(Throwable, Context): Decision` | Classify constructed action/precheck/throttle errors | Retry within the configured budget |
+| `throttle(): ?Throttle` | Defer until a rate-limit policy permits execution | No throttle |
+
+Import `Context` and `Decision` from `Scarlett\Execution`, and `Throttle` from
+`Scarlett\Policies`. A throttle policy's `delay(Context)` returns `null` to proceed
+or seconds to wait. Throwing `Scarlett\Exceptions\Throttled` also defers execution.
+
+| Situation | What happens next | Budget |
+| --- | --- | --- |
+| Temporary input preparation failure | Resolve inputs/construct again after backoff | Action budget, or verification budget if the action was already saved |
+| Invalid/deleted input | Terminal failure by default | Configurable exception classification |
+| Action exception | Ask `onException` for a decision | Action retry budget |
+| Result-saving failure | Fail without classifying it as another action attempt | No automatic action retry on this error path |
+| Saved result cannot be restored, or verification fails | Retry restoration/verification; do not rerun the saved action | Separate verification budget |
+| Throttle | Defer execution | Does not spend failure retries |
+| Zero-second throttle | Wait `scarlett.minimum_throttle_seconds` (default `1`) | Does not spend failure retries |
+
+Explicit positive throttle waits and ordinary zero-second retries keep their given
+meaning. Accepted results from hooks still undergo verification. Put required terminal
+business updates in predefined rescue steps: a killed worker or exhausted verification
+is not guaranteed to invoke `onException`.
+
+<details>
+<summary><strong>Customize budgets and exception policies</strong></summary>
+
+Configure defaults in `config/scarlett.php`. The default action and verification
+budgets each allow three attempts. `Scarlett\Definition\ExecutionOptions` supports
+`workerTimeout`, `leaseSeconds`, `attempts`, `backoffSeconds`, `verificationAttempts`
+and `verificationBackoffSeconds`; pass it as a node's `execution` option. Read
+application-specific values from your Laravel configuration. Effective settings
+are persisted at admission, so later configuration changes do not alter active budgets.
+
+`scarlett.retry_policy` selects a `Scarlett\Policies\RetryPolicy` implementation.
+Use `Policies\ExceptionHandler` as a reusable base for handlers called by your
+`onException`. Before a step exists, `scarlett.input_exception_handler` selects the
+preparation handler; its default is `Policies\InputExceptionHandler`.
+`scarlett.input_terminal_exceptions` controls terminal classes (invalid arguments,
+missing records, invalid service bindings and PHP programming errors by default).
+A preparation handler cannot supply a successful result without a step instance.
+
+</details>
+
+## Operate in Laravel
+
+### Schedule recovery
+
+For example, add the following to `routes/console.php`, with your application's
+[Laravel scheduler](https://laravel.com/docs/13.x/scheduling) running:
 
 ```php
+use Illuminate\Support\Facades\Schedule;
+
+Schedule::command('scarlett:recover')->everyMinute();
+```
+
+Choose the recovery interval for your workload. Healthy progression does not
+need this command. It repairs lost deliveries and expired execution leases.
+You can also invoke `php artisan scarlett:recover` manually.
+
+```php
+use Scarlett\Facades\Scarlett;
+
 if (Scarlett::stalled()) {
     Scarlett::resume();
 }
-Scarlett::cooldown(); // hold new workflows; drain started work
-Scarlett::reopen();   // admit held workflows
-Scarlett::cancel($stepId); // withdraw pending/queued work
-Scarlett::cancel($stepId, includingRunning: true); // also revoke this active attempt
-Scarlett::cancelWorkflow($workflowId); // revoke every unfinished node atomically
+
+Scarlett::cooldown(); // Hold new workflows; let started workflows drain.
+Scarlett::reopen();   // Admit held workflows.
+Scarlett::cancel($stepId); // Cancel pending/queued work.
+Scarlett::cancel($stepId, includingRunning: true); // Also revoke an active attempt.
+Scarlett::cancelWorkflow($workflowId); // Revoke every unfinished node.
 ```
 
-Schedule `scarlett:recover` at an interval appropriate to your recovery needs.
-It is not required for healthy normal progression. Running attempts expire at
-`lease_seconds`; heartbeats extend a current lease. Queued deliveries can be
-replayed after `delivery_retry_seconds`. Lost attempts consume the relevant
-failure or verification budget. Replays of queued deliveries keep the same token.
+Set `delivery_retry_seconds` above normal queue latency. Recovery cannot distinguish
+a lost job from an unclaimed backlog; replay can publish another copy of the same
+attempt, while atomic claims protect execution. Early jobs release until due without
+spending business retries. Unexpected job errors/timeouts fail the transport delivery;
+durable engine recovery remains available. Transport delay limits still apply.
 
-The default retry budget is three attempts, with configurable backoff. Worker
-`timeout` must be shorter than the execution lease and queue `retry_after` must
-exceed the timeout (defaults: timeout 240s, lease 300s; use retry_after >240s).
-Use a real delayed queue for retry/backoff. The sync queue is for immediate local
-examples; it cannot provide delayed worker execution.
+### Track application ownership and history
 
-History is stored in `scarlett_history`; records include transitions, attempt,
-time and reason. Step records retain the last error and counters. Use
-`History::archive($workflowId)` for settled history, then
-`History::purge($before)` with an explicit retention cutoff. Active workflows
-are protected. `History::delete($workflowId)` removes one settled workflow for
-explicit subject cleanup. It also accepts a workflow settled through cancellation.
-No automatic retention age is imposed. Steps expose `started_at` (latest claim)
-and `finished_at` (settlement); full attempt timing remains in transition history.
+A `Workflow` may carry `subjectType`, `subjectId` (both strings or neither), and
+JSON `metadata`. Use them to associate workflows with application records:
+`Scarlett\Models\WorkflowRecord::forSubject($type, $id)` includes archived workflows.
+Subjects are application-owned labels, not serialized models or foreign keys.
 
-## Durability boundary
+`Scarlett\Execution\Context` is injected automatically into constructor/handler
+parameters typed exactly as `Context`; do not bind it in `inputs`. It exposes
+workflow, step and attempt IDs, failure count, `heartbeat()`, `isCurrent()` and
+`canRetry()`. Heartbeats extend a current lease; `canRetry()` checks whether another
+action attempt remains after the current one fails.
 
-A workflow row lock serializes claims, outcomes, cancellation and recovery.
-An attempt token fences stale workers. Outcome persistence, eligibility and
-outbox intent share a transaction. Delivery starts after commit, with a short
-publishing lease to suppress overlapping publishers. A crash or transport failure
-leaves recoverable intent. Duplicate jobs cannot claim the same attempt twice.
+Use `Context::whileCurrent(callable)` for database writes that must reject stale
+workers. It holds the workflow lock and skips the callback if ownership was lost.
+Acquire application locks inside that callback, recheck application-specific ownership,
+and keep network calls outside it. All affected records must share the same database
+connection. Lease expiry cannot stop an external call already in progress.
 
-External actions are **at least once**, not exactly once. A process can crash after
-an external effect but before saving its result. Consumers must use business
-idempotency keys where repeating that effect matters. Lease expiry cannot stop an
-external call already in progress; it prevents that old worker from overwriting
-new engine state. Constructors should only bind data, not perform external effects.
+| `Scarlett\History` operation | Behavior |
+| --- | --- |
+| `archive($workflowId)` | Requires an existing settled workflow; returns false for active work, throws if missing |
+| `delete($workflowId)` | Deletes settled history; returns false for missing or active work |
+| `purge($before)` | Purges eligible archived history before your cutoff; protects active work |
 
-Treat the storage models and execution internals as engine-owned. Only data from
-trusted workflow definitions should reach the engine; never accept arbitrary step
-classes or service bindings from an HTTP request.
+`scarlett_history` records transitions, attempt identities, times and reasons.
+Steps retain error/counter details, latest-claim `started_at` and settlement
+`finished_at`. There is no automatic retention age.
 
-## Tests
+## Extend states
+
+Step states use **Spatie model-states**. Register subclasses of
+`Scarlett\States\StepState` in `scarlett.states`, each with a unique stable `$name`.
+Define their phase, dependency satisfaction, recovery and subtree-skipping semantics;
+register allowed transitions in `scarlett.transitions`. A third transition entry
+can select a Spatie guard class. Configuration supports Laravel config caching.
+
+For a successful custom state, extend `States\Completed`, set a name such as
+`approved`, register `Running → Approved`, and return
+`Decision::complete($result, Approved::class)` from an acceptance hook. Parents
+also need `WaitingForChildren → Approved`. A denied completion guard fails its
+owning step and preserves successful child outcomes.
+
+A new operational phase requires implementation and tests, beyond a state label.
+Settled states cannot be reopened. Change execution through engine controls and
+hooks rather than directly mutating storage models.
+
+## Durability and boundaries
+
+- A workflow row lock serializes claims, outcomes, cancellation and recovery.
+  Attempt tokens prevent stale workers from overwriting newer engine state.
+- Outcome progression and delivery intents share a transaction. Publication runs
+  after commit; publishing leases suppress overlapping publishers. Failed publication
+  leaves recoverable intent. Duplicate jobs cannot claim the same attempt twice.
+- External effects are **at least once**. A process can crash after a remote action
+  but before saving its result. Supply business idempotency keys when repetition matters.
+- Accept only trusted workflow definitions. HTTP inputs must never choose arbitrary
+  step classes or container bindings.
+- Step keys are exact, case-sensitive UTF-8 strings of at most
+  `Node::MAX_KEY_LENGTH` characters. MySQL stores identity/parent/rescue keys with
+  binary comparison. Additive migrations support scheduled dates beyond 2038;
+  rollback refuses collisions or dates that cannot fit the older schema.
+
+## Develop and test the package
+
+Run these commands from the package checkout:
 
 ```sh
 composer install
@@ -243,24 +466,14 @@ composer install
 ./run-pest-tia.sh --fresh
 ```
 
-The full suite includes independent PHP workers and actual MySQL lock contention.
-Create a dedicated `scarlett_collision_tests` database first. Server configuration
-uses `SCARLETT_TEST_HOST`, `SCARLETT_TEST_PORT`, `SCARLETT_TEST_USER`, and
-`SCARLETT_TEST_PASSWORD`. The suite refuses to reset any other database. Its user
-needs access to `performance_schema.data_locks` to prove overlap. Never run the
-collision suite in parallel against the same test database.
+The full suite includes SQLite/Testbench checks, independent queue workers and real
+MySQL contention/migration tests. It requires a dedicated `scarlett_collision_tests`
+database and refuses to reset another database. Configure `SCARLETT_TEST_HOST`,
+`SCARLETT_TEST_PORT`, `SCARLETT_TEST_USER` and `SCARLETT_TEST_PASSWORD`. Its database
+user needs access to `performance_schema.data_locks`. Do not run concurrent collision
+suites against the same test database.
 
-Local runs use Pest 5 TIA with Herd coverage or PCOV/Xdebug. Explicit file selections
-are executed directly by Pest. CI runs exhaustive non-TIA tests. The package has
-no browser test dependency. `composer format` applies Laravel Pint.
+Local tests use Pest TIA with Herd coverage or PCOV/Xdebug; explicit selections run
+directly. CI runs exhaustive non-TIA tests. `composer format` applies Laravel Pint.
 
-Deferred: dynamic children and prefixed execution scopes. There is zero Step Dispatcher API/schema compatibility. See
-[migration-from-step-dispatcher.md](migration-from-step-dispatcher.md).
-
-History API: `archive($id)` requires an existing workflow and throws when it is missing; it returns false for active work. `delete($id)` is idempotent cleanup and returns false for missing or active work. `purge($cutoff)` skips concurrently removed or ineligible workflows.
-
-Set `scarlett.delivery_retry_seconds` above normal queue latency. Recovery cannot distinguish a lost delivery from an unclaimed backlog, so each expired replay window may publish another copy of the same attempt; atomic claims prevent duplicate business execution. Increase this window for busy queues. Transport delay limits still apply (for example SQS); long schedules need a compatible queue or recovery after publication becomes possible.
-
-Step identities are exact, case-sensitive UTF-8 strings of at most `Node::MAX_KEY_LENGTH` characters. MySQL stores identity/parent/rescue keys with binary comparison. New additive migrations preserve existing data and expand scheduled dates to DATETIME. Rollback refuses key collisions or dates that cannot fit the older schema; resolve those records before narrowing the schema.
-
-Early queue deliveries release until due without consuming business retries. Queue reservation attempts are unlimited for these releases, while escaping job errors explicitly fail their transport delivery and timeouts fail immediately, without a cache-backed exception counter; Scarlett owns business and verification budgets. A denied custom completion guard fails its owning step and leaves successful child outcomes intact.
+See the [changelog](CHANGELOG.md) for changes. Scarlett is [MIT licensed](LICENSE).

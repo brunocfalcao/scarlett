@@ -19,6 +19,7 @@
 
 ### Maintenance
 
+- Add Scarlett branding, visual workflow diagrams and a Laravel-focused README with a runnable quick start.
 - Reduce repeated graph hydration and publication lookups; cache validated state configuration and narrow recovery candidates.
 - Expand engine, consumer, migration, concurrent-ownership and real-worker regression coverage.
 - Document progressive Freshsites migration, package upgrades, failure semantics and consumer acceptance gates.
