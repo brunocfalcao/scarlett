@@ -135,3 +135,55 @@ it('fails timed out transport work without relying on a cache counter', function
     expect(DB::table('jobs')->where('payload', 'like', '%'.$step->id.'%')->exists())->toBeFalse();
     expect((string) $step->fresh()->state)->toBe('running')->and($step->fresh()->action_completed)->toBeFalse();
 });
+
+
+it('delivers terminal failure hooks through an independent database queue worker', function () {
+    config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql']);
+    $flow = app(Engine::class)->start(new Workflow([
+        new Node('action', \Scarlett\Tests\Fixtures\FailureAwareStep::class, inputs: ['name' => 'action', 'mode' => 'fail']),
+    ]));
+    expect($flow->failures()->exists())->toBeFalse();
+    $worker = new Process([PHP_BINARY, __DIR__.'/queue-worker.php']);
+    $worker->setTimeout(20);
+    $worker->mustRun();
+    expect($flow->fresh()->status)->toBe('failed')
+        ->and($flow->failures()->sole()->status)->toBe(\Scarlett\Failures\Status::Completed)
+        ->and($flow->fresh()->metadata['failures'][0]['reason'])->toBe('A useful failure reason.');
+});
+
+
+it('recovers terminal failure effects after real action or handler worker timeouts', function (string $mode) {
+    config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql']);
+    $flow = app(Engine::class)->start(new Workflow([
+        new Node('timeout', \Scarlett\Tests\Fixtures\SlowFailureAwareStep::class,
+            inputs: ['name' => 'timeout', 'mode' => $mode],
+            execution: new ExecutionOptions(workerTimeout: 1, leaseSeconds: 5, attempts: 1)),
+    ]));
+    $worker = new Process([PHP_BINARY, __DIR__.'/queue-worker.php', 'hook-timeout']);
+    $worker->setTimeout(20);
+    try {
+        $worker->run();
+    } catch (ProcessSignaledException) {
+        expect($worker->getTermSignal())->toBe(SIGKILL);
+    }
+    expect($worker->getOutput())->toContain(TimeoutExceededException::class);
+    if ($mode === 'slow-hook') {
+        $failure = $flow->failures()->sole();
+        expect($failure->status)->toBe(\Scarlett\Failures\Status::Running);
+        $failure->update(['lease_until' => now()->subSecond()]);
+        app(Engine::class)->resume($flow->id);
+        expect($failure->fresh()->status)->toBe(\Scarlett\Failures\Status::Failed)
+            ->and($failure->fresh()->error)->toBe('Failure execution lease expired.');
+    } else {
+        $step = $flow->steps()->sole();
+        expect((string) $step->state)->toBe('running');
+        $step->update(['lease_until' => now()->subSecond()]);
+        app(Engine::class)->resume($flow->id);
+        $healthy = new Process([PHP_BINARY, __DIR__.'/queue-worker.php']);
+        $healthy->setTimeout(20);
+        $healthy->mustRun();
+        expect($flow->failures()->sole()->status)->toBe(\Scarlett\Failures\Status::Completed)
+            ->and($flow->fresh()->metadata['failures'][0]['cause'])->toBe('attempt_lost');
+    }
+    expect($flow->fresh()->status)->toBe('failed');
+})->with(['slow-action', 'slow-hook']);

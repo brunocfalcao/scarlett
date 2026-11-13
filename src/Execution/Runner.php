@@ -83,12 +83,12 @@ final class Runner
                     $result = $decision->result;
                     $state = $decision->state;
                 } else {
-                    $this->engine->decide($stepId, $attempt, $decision, $exception->getMessage(), verification: $record->action_completed);
+                    $this->engine->decide($stepId, $attempt, $decision, $exception->getMessage(), verification: $record->action_completed, cause: $step === null ? FailureCause::InputResolution : FailureCause::Decided);
 
                     return;
                 }
             } catch (Throwable $handlerFailure) {
-                $this->engine->decide($stepId, $attempt, Decision::fail(), $handlerFailure->getMessage());
+                $this->engine->decide($stepId, $attempt, Decision::fail(), $handlerFailure->getMessage(), cause: FailureCause::HandlerCrashed);
 
                 return;
             }
@@ -99,7 +99,7 @@ final class Runner
                     return;
                 }
             } catch (Throwable $persistenceFailure) {
-                $this->engine->decide($stepId, $attempt, Decision::fail(), $persistenceFailure->getMessage());
+                $this->engine->decide($stepId, $attempt, Decision::fail(), $persistenceFailure->getMessage(), cause: FailureCause::ResultPersistence);
 
                 return;
             }

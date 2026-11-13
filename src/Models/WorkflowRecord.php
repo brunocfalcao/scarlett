@@ -28,6 +28,11 @@ class WorkflowRecord extends Model
         return $query->where('subject_type', $type)->where('subject_id', $id);
     }
 
+    public function failures(): HasMany
+    {
+        return $this->hasMany(FailureRecord::class, 'workflow_id');
+    }
+
     public function steps(): HasMany
     {
         return $this->hasMany(StepRecord::class, 'workflow_id');

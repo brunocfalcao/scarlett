@@ -19,12 +19,12 @@ final class Journal
         try {
             $this->transition($step, $state);
         } catch (TransitionNotAllowed|TransitionNotFound $exception) {
-            $this->transition($step, Failed::class, 'Completion rejected: '.$exception->getMessage());
+            $this->transition($step, Failed::class, 'Completion rejected: '.$exception->getMessage(), FailureCause::CompletionRejected);
         }
     }
 
     /** Called only while holding the workflow lock. */
-    public function transition(StepRecord $step, string $state, ?string $reason = null): void
+    public function transition(StepRecord $step, string $state, ?string $reason = null, FailureCause $cause = FailureCause::Decided): void
     {
         $from = (string) $step->state;
         $step->state->transitionTo($state);
@@ -36,6 +36,9 @@ final class Journal
                 $attributes['error'] = $reason;
             }
             $step->update($attributes);
+        }
+        if ($step->state::phase() === Phase::Settled && $step->state::activatesRecovery()) {
+            app(\Scarlett\Failures\Coordinator::class)->register($step, $cause, $reason);
         }
         DB::table('scarlett_history')->insert([
             'step_id' => $step->id, 'attempt' => $step->attempt,

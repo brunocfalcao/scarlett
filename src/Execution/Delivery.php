@@ -28,6 +28,7 @@ final class Delivery
             // Publication is recoverable even when its lookup or lease claim fails.
             report($exception);
         }
+        app(\Scarlett\Failures\Delivery::class)->flush($workflowId);
     }
 
     private function publish(string $workflowId): void

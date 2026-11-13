@@ -1,0 +1,230 @@
+# Subject ownership and durable failure handling
+
+All APIs below are package-owned and application-agnostic. `Scarlett\Facades\Scarlett`
+forwards the public methods of `Scarlett\Engine`.
+
+## Replace the current workflow of a subject
+
+```php
+Scarlett\Definition\SubjectSlot::__construct(
+    string $subjectType,
+    string $subjectId,
+    string $name,
+)
+Scarlett\Engine::replace(SubjectSlot $slot, callable $prepare): ?WorkflowRecord
+Scarlett\Engine::current(SubjectSlot $slot): ?string
+```
+
+The callback contract is `callable(?WorkflowRecord $previous): Workflow|null|false`.
+The engine serializes the subject/slot, locks and revokes its previous workflow,
+then calls the callback inside that same database transaction. The callback sees
+the revoked previous record, or `null` for a new slot or deleted history.
+Return a definition to admit its replacement; `null` or `false` vetoes **all**
+changes, including old cancellation, callback writes and slot assignment.
+Thrown exceptions and invalid definitions also roll everything back and propagate.
+The returned record is the newly admitted workflow; a veto returns `null`.
+
+```php
+use App\Models\Document;
+use App\Workflows\DocumentWorkflow;
+use Scarlett\Definition\SubjectSlot;
+use Scarlett\Definition\Workflow;
+use Scarlett\Facades\Scarlett;
+use Scarlett\Models\WorkflowRecord;
+
+$slot = new SubjectSlot('document', (string) $documentId, 'processing');
+
+$workflow = Scarlett::replace($slot, function (?WorkflowRecord $previous) use ($documentId): ?Workflow {
+    $document = Document::query()->lockForUpdate()->findOrFail($documentId);
+    if (! $document->canProcess()) {
+        return null;
+    }
+
+    $document->markProcessing();
+
+    return DocumentWorkflow::definition($document->getKey());
+});
+
+$currentId = Scarlett::current($slot);
+```
+
+The example's application classes/methods belong to the consumer. The engine binds
+the definition to the slot's subject; an explicitly different subject is rejected.
+The current pointer remains after completion/failure and becomes `null` when its
+workflow history is deleted. There is no automatic adoption of workflows previously
+started with `start()`. Introduce slots at an explicit cutover boundary.
+
+Slots are exact, case-sensitive, non-empty UTF-8 identities. Each subject can have
+several slots. Only the chosen slot is replaced; independent `start()` workflows
+and other slots remain untouched. A replacement respects admission cooldown.
+Revocation also cancels unfinished failure handlers and fences their writes.
+
+**Lock order:** call `replace()` before acquiring consumer row locks. The engine
+locks admission, then the slot, then the previous workflow, then your callback
+may lock consumer rows. Do not call it from a `whileCurrent` callback or while
+holding another workflow/consumer lock. All transactional writes must use the
+same database connection. Laravel may retry deadlocked transactions under
+`scarlett.transaction_attempts`; callbacks must be replay-safe database work,
+with external effects scheduled after commit. No consumer replacement retry loop
+is needed. An enclosing transaction keeps publication deferred until its commit.
+
+## Handle every terminal failure durably
+
+```php
+Scarlett\Step::onFailure(Context $context, Failure $failure): void
+Scarlett\Step::onFailureWithoutInstance(Context $context, Failure $failure): void // static
+Scarlett\Execution\Decision::fail(?string $reason = null): self // static
+Scarlett\Execution\Decision::stop(?string $reason = null): self // static
+```
+
+Override `onFailure` for business failure effects. Scarlett creates one durable
+record per failed/stopped step, including exhausted retries, verification failure,
+lease expiry, input restoration failure and exception-handler crashes. It also
+supports custom settled states whose `activatesRecovery()` is true. Cancelled,
+skipped and successful steps do not create handlers. Steps inheriting both default
+hooks need no extra job.
+
+The handler runs as its own queued execution, using the original constructor
+bindings and a new `Context`. Constructor values are restored at handler time:
+model references and services remain live bindings, while literal snapshots keep
+their admitted values. Constructors must remain free of effects. The queue message
+contains only identifiers and timeout settings, never the original exception,
+step instance, model or service.
+
+A failed child's handler settles before its parent's handler starts. The parent
+also waits for already-running descendants that could subsequently fail. Siblings
+have no promised relative order. Existing rescue nodes still activate from the
+step's failure immediately, independently of handler completion. Use rescue nodes
+for a distinct recovery workflow; do not duplicate the same business effect in
+both a rescue and a failure hook.
+
+`Decision::fail($reason)` and `stop($reason)` persist the supplied text as the
+step's error and handler reason, overriding the caught exception message. Empty
+text is preserved; omitted text falls back to the available engine diagnostic, or remains `null`.
+
+### Typed failure data
+
+`Scarlett\Execution\Failure` exposes readonly properties:
+
+| Property | Type / meaning |
+| --- | --- |
+| `id` | `string`: stable logical failure ID across handler retries; suitable for deduplication |
+| `cause` | `Scarlett\Execution\FailureCause` |
+| `reason` | `?string`: persisted terminal reason |
+| `stepKey`, `stepClass` | `string`: original definition identity |
+| `bindings` | `array`: original encoded input bindings; inspect without resolving them |
+| `subjectType`, `subjectId` | `?string`: workflow subject |
+| `metadata` | `array`: workflow metadata snapshot when the failure was registered |
+| `preparationError` | `?string`: current handler input/construction diagnostic |
+
+`Failure::literalInput(string $name): mixed` decodes one named literal binding.
+It never restores unrelated bindings. Use scalar identifiers for the fallback;
+requesting a model-reference literal can still fail if that model disappeared.
+Requesting a service/result binding or absent name throws `InvalidArgumentException`.
+
+| `FailureCause` case | Backed value | Origin |
+| --- | --- | --- |
+| `Decided` | `decided` | The step's precheck or exception policy chose fail/stop |
+| `BudgetExhausted` | `budget_exhausted` | Business, preparation or verification retry budget exhausted |
+| `AttemptLost` | `attempt_lost` | Expired execution lease exhausted the applicable budget |
+| `HandlerCrashed` | `handler_crashed` | The action's exception classifier failed |
+| `InputResolution` | `input_resolution` | Input/constructor failure classified terminal directly |
+| `ChildFailed` | `child_failed` | A failed/stopped child concluded its parent |
+| `ResultPersistence` | `result_persistence` | A successful action's result could not be stored |
+| `CompletionRejected` | `completion_rejected` | A completion state transition was denied |
+
+`HandlerCrashed` describes the original exception classifier, not a crash of
+`onFailure`. Hook failures update the failure record's separate `error` and
+`failures` fields; the original cause/reason never changes.
+
+### Missing inputs and deleted models
+
+If restoration or construction fails, Scarlett invokes the static
+`onFailureWithoutInstance` without constructing the step. Implement it using
+`Failure` identifiers/metadata and `Context::whileCurrent`:
+
+```php
+public static function onFailureWithoutInstance(Context $context, Failure $failure): void
+{
+    $documentId = $failure->literalInput('documentId');
+
+    $context->whileCurrent(function () use ($documentId, $failure): void {
+        // Consumer-owned, idempotent update; tolerate an already-deleted document.
+        app(DocumentOutcomes::class)->recordFailure($documentId, $failure->id, $failure->reason);
+    });
+}
+```
+
+An instance-only override without a fallback records a diagnostic and retries
+within its budget instead of silently reporting success. A static-only override
+also handles normally restored steps: the default instance hook delegates to it.
+If the step class itself has been removed, no business method can run; the durable
+record retains the bounded failure diagnostic. Keep deployed step classes while
+work or failure handlers remain outstanding.
+
+### Ownership, attempts and recovery
+
+A handler `Context` exposes the original `workflowId`/`stepId`, its own `attempt`
+and `failureId`, and its own failed-attempt count. `whileCurrent`, `isCurrent`,
+`heartbeat` and `canRetry` all address this handler execution. Acquire consumer
+locks only inside `whileCurrent`; perform external calls outside the lock.
+
+The hook uses the original step's snapshotted timeout, lease, attempts and backoff,
+with a **separate counter** from the business action. Exceptions and expired leases
+retry recoverably; exhaustion records handler status `failed`. Hooks do not call
+`onException` or recursively create failure hooks. `scarlett:recover` and
+`Scarlett::stalled()` / `resume()` include handler delivery and lease recovery.
+
+There is one logical failure record, **not exactly-once external effects**. A crash
+after an effect but before acknowledgement can invoke the hook again. Use
+`Failure::id` as the business deduplication key and make effects idempotent. Keep
+DB effects and their deduplication marker in the same `whileCurrent` transaction.
+
+`WorkflowRecord::failures(): HasMany` exposes records for diagnostics. Their
+`status` is `Scarlett\Failures\Status`: Pending, Queued, Running, Completed,
+Failed or Cancelled. Workflow `finished_at` and history cleanup wait for all
+handlers to settle. Handler exhaustion does not erase the original step failure.
+Replacement/cancellation cancels unfinished handlers; it cannot interrupt an
+external request already in flight.
+
+## Declare class execution defaults
+
+```php
+Scarlett\Step::executionOptions(): Scarlett\Definition\ExecutionOptions // static
+```
+
+Override it on your shared base step or individual class. Read values from Laravel
+configuration; do not construct the business step to calculate its defaults.
+
+```php
+public static function executionOptions(): ExecutionOptions
+{
+    return new ExecutionOptions(
+        workerTimeout: config('processing.timeout'),
+        leaseSeconds: config('processing.lease'),
+        attempts: config('processing.attempts'),
+        backoffSeconds: config('processing.backoff'),
+    );
+}
+```
+
+When `Node::execution` is omitted, Scarlett uses the class defaults. An explicit
+node `ExecutionOptions` object replaces the class object entirely; its omitted
+fields use package configuration, not class defaults. Effective options are
+snapshotted at admission. Later config/code changes do not alter admitted budgets.
+This applies to timeout, lease, attempts, backoff and both verification options.
+The static method may run during validation and admission; keep it deterministic
+and free of external effects. Successors remain unconstructed until eligible.
+
+## Package upgrade
+
+Run ordinary `php artisan migrate` after updating the package and before starting
+updated workers. Additive migrations `000005_create_subject_slots` and
+`000006_create_failure_executions` are discovered by the provider; do not publish
+or copy them. Existing workflows remain unslotted, without invented historical
+failure records. New failures after upgrade use the hooks currently deployed.
+
+Stop admission/workers and drain or deliberately cancel outstanding work before
+rolling back code/schema. Rolling back these migrations removes slot pointers
+and failure history; it is not a live feature toggle. Preserve required history
+before a downgrade. No migration touches consumer business tables.

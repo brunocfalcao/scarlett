@@ -316,6 +316,9 @@ that the saved result is acceptable**.
 | `handle(...)` | Perform your business action | Implement in each step |
 | `verify(Context, mixed $result): bool` | Confirm the decoded durable result | Return `true` |
 | `onException(Throwable, Context): Decision` | Classify constructed action/precheck/throttle errors | Retry within the configured budget |
+| `onFailure(Context, Failure): void` | Durable final-failure effects, including worker loss | No job unless a failure hook is overridden |
+| `static onFailureWithoutInstance(Context, Failure): void` | Handle missing inputs from persisted identifiers | Diagnostic if a required instance cannot be restored |
+| `static executionOptions(): ExecutionOptions` | Class timeout/lease/retry defaults | Package configuration |
 | `throttle(): ?Throttle` | Defer until a rate-limit policy permits execution | No throttle |
 
 Import `Context` and `Decision` from `Scarlett\Execution`, and `Throttle` from
@@ -334,8 +337,12 @@ or seconds to wait. Throwing `Scarlett\Exceptions\Throttled` also defers executi
 
 Explicit positive throttle waits and ordinary zero-second retries keep their given
 meaning. Accepted results from hooks still undergo verification. Put required terminal
-business updates in predefined rescue steps: a killed worker or exhausted verification
-is not guaranteed to invoke `onException`.
+business updates in `onFailure(Context, Failure)`: a killed worker or exhausted
+verification is not guaranteed to invoke `onException`. Use the static
+`onFailureWithoutInstance` fallback when deleted inputs prevent reconstruction.
+Return `Decision::fail($reason)` or `stop($reason)` to preserve a business-readable
+reason. Handlers have recoverable attempts, require idempotent effects, and settle
+child-before-parent. See [the lifecycle API](docs/consumer-lifecycle.md#handle-every-terminal-failure-durably).
 
 <details>
 <summary><strong>Customize budgets and exception policies</strong></summary>
@@ -343,7 +350,8 @@ is not guaranteed to invoke `onException`.
 Configure defaults in `config/scarlett.php`. The default action and verification
 budgets each allow three attempts. `Scarlett\Definition\ExecutionOptions` supports
 `workerTimeout`, `leaseSeconds`, `attempts`, `backoffSeconds`, `verificationAttempts`
-and `verificationBackoffSeconds`; pass it as a node's `execution` option. Read
+and `verificationBackoffSeconds`. Override static `Step::executionOptions()` for
+class defaults, or pass a node's `execution` option to replace that object. Read
 application-specific values from your Laravel configuration. Effective settings
 are persisted at admission, so later configuration changes do not alter active budgets.
 
@@ -401,6 +409,21 @@ JSON `metadata`. Use them to associate workflows with application records:
 `Scarlett\Models\WorkflowRecord::forSubject($type, $id)` includes archived workflows.
 Subjects are application-owned labels, not serialized models or foreign keys.
 
+For a “process again” action, use `Scarlett::replace(new SubjectSlot($type, $id,
+$slotName), $prepare)`. The callback runs after the old workflow is locked/revoked;
+return a `Workflow` to replace it, or `null`/`false` to roll everything back.
+`Scarlett::current($slot)` returns the current workflow ID. Independent lanes remain
+untouched. Call replacement before taking application locks.
+[See signatures, transaction rules and examples](docs/consumer-lifecycle.md#replace-the-current-workflow-of-a-subject).
+
+```mermaid
+flowchart LR
+    Slot["Lock subject slot"] --> Old["Lock and revoke previous workflow"]
+    Old --> Prepare["Prepare replacement · consumer transaction"]
+    Prepare -->|"Workflow"| Commit["Admit replacement and commit"]
+    Prepare -->|"null / false / exception"| Rollback["Rollback · previous ownership restored"]
+```
+
 `Scarlett\Execution\Context` is injected automatically into constructor/handler
 parameters typed exactly as `Context`; do not bind it in `inputs`. It exposes
 workflow, step and attempt IDs, failure count, `heartbeat()`, `isCurrent()` and
@@ -421,7 +444,9 @@ connection. Lease expiry cannot stop an external call already in progress.
 
 `scarlett_history` records transitions, attempt identities, times and reasons.
 Steps retain error/counter details, latest-claim `started_at` and settlement
-`finished_at`. There is no automatic retention age.
+`finished_at`. Workflow settlement and history cleanup also wait for durable failure
+handlers. Inspect them through `WorkflowRecord::failures()`. There is no automatic
+retention age.
 
 ## Extend states
 

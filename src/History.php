@@ -62,6 +62,7 @@ final class History
     private function remove(WorkflowRecord $workflow): void
     {
         $ids = $workflow->steps()->pluck('id');
+        $workflow->failures()->delete();
         DB::table('scarlett_history')->whereIn('step_id', $ids)->delete();
         DB::table('scarlett_deliveries')->whereIn('step_id', $ids)->delete();
         $workflow->steps()->delete();
@@ -70,6 +71,6 @@ final class History
 
     private function settled(WorkflowRecord $workflow): bool
     {
-        return $workflow->finished_at !== null && $workflow->steps()->get()->every(fn ($step): bool => $step->state::phase() === Phase::Settled);
+        return $workflow->finished_at !== null && ! $workflow->failures()->unfinished()->exists() && $workflow->steps()->get()->every(fn ($step): bool => $step->state::phase() === Phase::Settled);
     }
 }

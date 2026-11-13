@@ -35,7 +35,7 @@ final class Progression
                 if ($phase === Phase::Children) {
                     $children = $childrenByParent->get($step->key, collect());
                     if ($children->contains(fn ($child): bool => $child->state::activatesRecovery())) {
-                        $this->journal->transition($step, Failed::class, 'A child failed.');
+                        $this->journal->transition($step, Failed::class, 'A child failed.', FailureCause::ChildFailed);
                         $changed = true;
 
                         continue;
@@ -97,12 +97,13 @@ final class Progression
                 $changed = true;
             }
         } while ($changed);
+        app(\Scarlett\Failures\Coordinator::class)->advance($workflow, $steps);
         $this->aggregate($workflow, $steps);
     }
 
     private function aggregate(WorkflowRecord $workflow, Collection $steps): void
     {
-        if ($steps->every(fn ($step): bool => $step->state::phase() === Phase::Settled)) {
+        if ($steps->every(fn ($step): bool => $step->state::phase() === Phase::Settled) && ! $workflow->failures()->unfinished()->exists()) {
             $failed = $steps->contains(fn ($step): bool => $step->state::activatesRecovery());
             // Unused recovery nodes do not make a successful workflow cancelled.
             $cancelled = $steps->contains(fn ($step): bool => $step->rescues_key === null && ! $step->state::satisfiesDependency());

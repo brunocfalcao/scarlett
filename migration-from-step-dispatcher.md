@@ -26,7 +26,9 @@ initial schema and delivery-lease migration remain unchanged. The new additive
 execution settings, scheduling and step timestamps. The subsequent additive
 `2026_11_13_000003_preserve_exact_step_keys.php` preserves exact MySQL key comparison;
 `2026_11_13_000004_expand_scheduled_date_range.php` permits dates beyond 2038.
-Fresh installations run all five; existing installations run only missing files. Repeated `migrate` is a
+`2026_11_13_000005_create_subject_slots.php` adds current-workflow slots;
+`2026_11_13_000006_create_failure_executions.php` adds durable terminal handlers.
+Fresh installations run all seven; existing installations run only missing files. Repeated `migrate` is a
 no-op. Legacy Scarlett rows with no execution snapshot use configured defaults.
 New rows retain their admitted execution settings across deployments.
 
@@ -57,9 +59,11 @@ never discard them to force a schema downgrade.
 | Services / DTOs / enums / models | `Inputs\Service`, registered payload mappers, configured enum aliases, `ModelReference`; explicit snapshots remain arrays/DTOs |
 | `startOrSkip` / other preconditions | `before(Context): ?Decision` |
 | `dispatch_after` | `Node::notBefore`, an absolute `DateTimeInterface`; prerequisites must also succeed |
-| Per-step timeout, retries and backoff | `Definition\ExecutionOptions` on `Node::execution` |
+| Per-step timeout, retries and backoff | Static `Step::executionOptions(): ExecutionOptions`; explicit `Node::execution` wins |
 | `retryException` / ignored exceptions | `onException(Throwable, Context): Decision`; use retry, fail, skip, stop or complete deliberately |
-| `resolveException` and terminal business updates | Predeclared `rescues` nodes for durable final-failure work, including exhausted attempts and worker crashes |
+| `resolveException` and terminal business updates | `onFailure(Context, Failure)` plus static `onFailureWithoutInstance`; keep `rescues` for distinct recovery branches |
+| Replace the current scan/revision | `replace(SubjectSlot, callable): ?WorkflowRecord`; callback veto rolls back cancellation and consumer writes |
+| Current workflow for progress screens | `current(SubjectSlot): ?string`; no mirrored consumer column required |
 | Confirmation | `verify(Context, mixed $result): bool`; retries only verification after saving the business result |
 | Throttling | `Policies\Throttle`, `Decision::throttle()` or `Exceptions\Throttled`; no failure-budget consumption |
 | Obsolete-worker write guard | `Context::whileCurrent(callable): bool` for database writes; retain consumer ownership checks inside it |
@@ -83,6 +87,9 @@ Build `ExecutionOptions` from the consumer's configuration. Supported overrides:
 `workerTimeout`, `leaseSeconds`, `attempts`, `backoffSeconds`,
 `verificationAttempts`, `verificationBackoffSeconds`. Omitted settings use Scarlett
 configuration at workflow admission, and all effective values are persisted.
+Override static `Step::executionOptions()` on a shared base or individual class.
+An explicit node object replaces class defaults entirely; its omitted fields use
+package configuration. No business step is instantiated to obtain settings.
 Attempts means total failed business executions allowed, including the first;
 verify the old engine's counter convention before translating a value. Verification
 has a separate budget. Explicit `Decision::retry($seconds)` overrides backoff for
@@ -130,7 +137,7 @@ transaction may be retried after a deadlock, so guard callbacks must contain onl
 transactional database work. External effects need their own idempotency/claims.
 
 `History::delete` permits targeted cleanup only after settlement/revocation. It
-removes that workflow's deliveries, transitions and steps in foreign-key order,
+removes that workflow's failure handlers, deliveries, transitions and steps in foreign-key order,
 without cascades. External files and business rows remain the application's job.
 
 ## Error semantics that must be preserved
@@ -138,10 +145,15 @@ without cascades. External files and business rows remain the application's job.
 `onException` runs when the constructed action/precheck/throttle throws. Input resolution or construction errors use `scarlett.input_exception_handler`: temporary failures retry within the existing budget, while `scarlett.input_terminal_exceptions` keeps invalid/deleted inputs terminal. Preparation after action persistence uses the verification budget. Keep constructors free of external side effects. Result-saving errors fail without repeating the action. Result restoration and verification errors use the verification budget, and every verification receives the decoded saved result. It is not
 a guaranteed final-failure callback: a killed process never runs it, and the engine
 can exhaust the retry or verification budget after it returns. Put required
-terminal business updates in predefined `rescues` nodes. A resolver can read its
-failed owner's `StepRecord` by workflow ID and stable key, including the persisted
-error and counters. The original Throwable is not serialized. Resolvers need their
-own idempotency and retry policy.
+terminal business updates in `onFailure(Context, Failure)` and implement static
+`onFailureWithoutInstance` using persisted scalar identifiers when inputs cannot
+be restored. Use `Decision::fail($reason)` / `stop($reason)` for normalized text.
+The hook receives a typed cause, stable failure ID and saved reason; the original
+Throwable is not serialized. One durable record has recoverable attempts, so
+business effects must be idempotent. Children settle their hooks before parents;
+parents can ignore `FailureCause::ChildFailed` when the child owns the business
+outcome. Keep rescues for separate recovery workflows, without duplicating effects.
+See [the complete API and lifecycle contract](docs/consumer-lifecycle.md).
 
 A successful resolver does not erase the original failure or reopen cancelled
 successors. If a recoverable business condition should allow normal progression,
@@ -162,13 +174,14 @@ current source before edits. This package preparation does not migrate that app.
 2. **Predefine the graph.** Move the fixed `ScanPipelineStep::STAGES` definition
    to the workflow factory: fetch, judge, strategy, images, design, check, fix,
    recheck, pitch. Keep the root's business action (mark scanning); remove its
-   runtime child inserts. Preserve `forceDesign` on judge/pitch. Predeclare
-   appropriate final-failure resolvers. No dynamic-child feature is necessary.
+   runtime child inserts. Preserve `forceDesign` on judge/pitch. Implement
+   failure hooks on the appropriate steps, with the root ignoring `ChildFailed`
+   when its child already owns the site outcome. No dynamic-child feature is necessary.
 3. **Keep reads late.** Pass site/design identifiers and reload current state at
    execution. Preserve DTOs such as `FetchedPage` in the services; use registered
    mappers only when persisting objects as engine inputs/results.
 4. **Translate the base class carefully.** `BaseSiteStep::shouldRun` becomes a
-   precheck. Keep the site's current-workflow check, and replace tick/retry
+   precheck. Use `current(SubjectSlot)` for the site's current-workflow read, and replace tick/retry
    snapshots with `Context` plus `whileCurrent`. Remove direct overrides of
    dispatcher finalization, retry and failure internals. Rewrite rescan/deletion
    lock order with those guards. Do not remove stale-result protections.
@@ -183,12 +196,13 @@ current source before edits. This package preparation does not migrate that app.
    workflow is permitted; appending nodes to a running graph is not.
 6. **Carry execution policies explicitly.** Inventory every class's timeout and
    retry/backoff override; current timeouts range through 1,620 seconds. Put these
-   values in consumer configuration and build `ExecutionOptions`. Keep the image
+   values in consumer configuration and return `ExecutionOptions` from the static
+   class method; use explicit node options only for a workflow-specific override. Keep the image
    step's last-attempt fallback, transient/permanent classification, provider
    requested waits, design failure reasons and design-check holds. Final failure
    must also update business state after a crash or exhausted verification.
 7. **Preserve email protections.** Pitch/reminder remain independent workflows
-   associated with the site; they do not replace its scan workflow ID. Retain
+   associated with the site; they stay outside the shared scan/revision slot. Retain
    address-level claims, one-send rules, never-contact/opt-out checks, sending
    windows, rechecks after image preparation and uncertain-handover treatment.
    Use a single business attempt where sending must not retry, with durable
@@ -199,7 +213,8 @@ current source before edits. This package preparation does not migrate that app.
 8. **Rewrite projections and cleanup.** Update `WorkProgress`, `AdminActivity`,
    `SitePage`, `Site` send eligibility, `EmailPacer`, `DiscoveryRunner` and
    `SiteDeleter`. Associate all independent site workflows via subject IDs, and
-   distinguish scan/revision/pitch/reminder in metadata. Map aliases explicitly:
+   distinguish scan/revision/pitch/reminder in metadata. Use `current(SubjectSlot)`
+   for progress screens instead of mirroring a workflow ID on the site. Map aliases explicitly:
    old Dispatched becomes Queued; WaitingForChildren is a live parent, not a
    finished step. For activity duration use step timestamps/history. Preserve
    deletion refusal during a mail handover and delayed file cleanup. Do not
@@ -247,8 +262,8 @@ truth; no separate shared Freshsites documentation directory was present.
 | Freshsites behavior | Scarlett support available now | Migration acceptance still required |
 | --- | --- | --- |
 | Manual scan, nine ordered stages, force-design and revision | Predeclared parent/child graph, stages, typed late construction, prechecks | Port existing manual-scan tests, skips, forced review, design revision and quality holds |
-| Rescan and deletion during execution | Workflow cancellation, attempt ownership, guarded database writes, settled-history deletion | Prove obsolete workers cannot write; preserve refusal during mail handover and delayed file cleanup |
-| Transient errors and image fallback | Per-node budgets/backoff/timeouts, final-attempt checks, preparation recovery, durable rescue nodes | Preserve each service's failure classification, normalized business reason, final-attempt image fallback and crash handling |
+| Rescan and deletion during execution | Atomic subject-slot replacement, rollback vetoes, attempt ownership, guarded writes and settled-history deletion | Prove obsolete workers cannot write; preserve refusal during mail handover and delayed file cleanup |
+| Transient errors and image fallback | Class/node budgets, final-attempt checks, preparation recovery and durable failure hooks | Preserve each service's failure classification, normalized business reason, final-attempt image fallback and crash handling |
 | Discovery capacity and replacement | Delayed roots, subjects/metadata and independently admitted continuation workflows | Preserve atomic accounting, capacity, cross-run spacing, replacement delay and replay safety |
 | Independent pitches and reminders | Separate workflows, one-attempt execution settings and durable failure handling | Preserve address claims, opt-outs, sending windows and uncertain handover; Scarlett cannot supply exactly-once mail |
 | Admin progress, activity and operations | Stable keys, workflow metadata, state history, error fields, timestamps and recovery command | Translate projections/retention and replace daemon wiring; do not infer business status from engine success alone |
@@ -258,8 +273,8 @@ Focused package readiness verification: **35 tests / 189 assertions passed** acr
 `ConsumerReadinessTest`, `PackageMigrationsTest`, and the MySQL `MigrationsTest`,
 `OwnershipTest`, and `QueueTest`. This includes real workers and concurrent
 ownership checks. It does not execute migrated Freshsites classes or certify
-Freshsites business parity. The latest broader affected package/host check remains
-119 package tests plus 14 host tests, recorded separately in the testing ledger.
+Freshsites business parity. These counts describe that earlier readiness checkpoint, not the later
+consumer-lifecycle extension suite. See the commit handoff/CI for current proof.
 
 Implementation order and gates:
 
@@ -267,17 +282,21 @@ Implementation order and gates:
    staging. Route new pilot workflows deliberately and persist/resolve which engine
    owns each workflow. The shared `SiteWorkflow::scan` also serves discovery, so a
    global replacement is not a manual-only pilot. Never hand a workflow to both engines.
-2. Preserve atomic admission: create the Scarlett workflow and save its identifier
-   on the consumer row in the same database transaction so publication waits for
-   that outer commit. Review the controller transactions too:
+2. Use one named `SubjectSlot` per site shared by scans and design revisions.
+   Call `Scarlett::replace($slot, $prepare)` before locking the site. Inside its
+   callback, lock/recheck the site and return the workflow definition or veto with
+   `null`/`false`; veto preserves old work and rolls back callback writes. Keep mail
+   workflows independent. Read the pointer with `Scarlett::current($slot)`.
+   Review controller transactions too:
    `SiteActionController::startScan` currently updates the site before entering
    `SiteWorkflow::scan`; replacing only the service would retain the old lock order.
    Rework rescan, deletion and guarded writes together, with engine locks before
    existing consumer rows. New discovery candidates and their accounting must
    still commit together with their workflow and continuation intent.
-3. Port business failure handling deliberately. Durable rescue nodes cannot inspect
-   the original in-memory Throwable or mail flags. Persist the normalized failure
-   details and send-claim evidence the resolver needs. Keep the distinction between
+3. Port business failure handling to `onFailure(Context, Failure)` and the static
+   missing-instance fallback. Use `Failure::id` for idempotency, explicit fail/stop
+   reason text, and `FailureCause::ChildFailed` to suppress duplicate root effects.
+   Persist send-claim evidence; hooks cannot inspect a killed worker's mail flags. Keep the distinction between
    a failed first design, a failed revision that preserves an earlier design, and a
    quality-check failure that holds a design for review.
 4. Bring discovery across after its spacing, replacement and accounting tests pass.
@@ -302,7 +321,10 @@ Freshsites currently uses retry backoff (at least its base 30 seconds for classi
 transient action failures), absolute discovery start times, and due-email scheduling;
 it has no explicit zero-delay throttle call to translate.
 
-No additional engine feature was required by this reassessment. Runtime child
+The subsequent consumer migration identified three engine additions, now implemented:
+atomic subject-slot replacement, durable terminal failure hooks with missing-input
+fallback, and static class execution defaults. Their exact signatures and semantics
+are in [the consumer lifecycle API](docs/consumer-lifecycle.md). Runtime child
 addition and prefix-isolated tables remain deferred. Business integration tests,
 worker operation and staged cutover are the remaining proof, rather than another
 round of speculative package features.

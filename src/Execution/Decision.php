@@ -17,6 +17,7 @@ final readonly class Decision
         public ?int $delay = null,
         public bool $throttled = false,
         public bool $producesResult = false,
+        public ?string $reason = null,
     ) {}
 
     public static function complete(mixed $result = null, string $state = Completed::class): self
@@ -29,14 +30,14 @@ final readonly class Decision
         return new self(Skipped::class);
     }
 
-    public static function stop(): self
+    public static function stop(?string $reason = null): self
     {
-        return new self(Stopped::class);
+        return new self(Stopped::class, reason: $reason);
     }
 
-    public static function fail(): self
+    public static function fail(?string $reason = null): self
     {
-        return new self(Failed::class);
+        return new self(Failed::class, reason: $reason);
     }
 
     public static function retry(?int $seconds = null): self

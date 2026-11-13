@@ -24,4 +24,9 @@ final readonly class Node
         public ?DateTimeInterface $notBefore = null,
         public ?ExecutionOptions $execution = null,
     ) {}
+
+    public function executionOptions(): ExecutionOptions
+    {
+        return $this->execution ?? $this->step::executionOptions();
+    }
 }

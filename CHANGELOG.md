@@ -4,6 +4,10 @@
 
 ### Features
 
+- Atomic subject-slot replacement with rollback vetoes, current-workflow lookup and revocation of old execution ownership.
+- Durable terminal failure hooks with typed causes, business-readable reasons, child-before-parent ordering, bounded recovery and persisted-input fallback.
+- Static step execution defaults, overridden by explicit node options and snapshotted without early construction.
+
 - Per-step execution settings persisted at admission, scheduled starts, workflow subjects and metadata, and execution timestamps.
 - Execution context injection, guarded consumer writes, active-workflow cancellation and targeted history deletion.
 - Configurable input-failure classification with bounded preparation retries and terminal invalid/deleted inputs.

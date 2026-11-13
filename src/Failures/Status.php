@@ -1,0 +1,20 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Scarlett\Failures;
+
+enum Status: string
+{
+    case Pending = 'pending';
+    case Queued = 'queued';
+    case Running = 'running';
+    case Completed = 'completed';
+    case Failed = 'failed';
+    case Cancelled = 'cancelled';
+
+    public function settled(): bool
+    {
+        return in_array($this, [self::Completed, self::Failed, self::Cancelled], true);
+    }
+}

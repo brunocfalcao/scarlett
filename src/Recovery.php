@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Scarlett;
 
 use Scarlett\Execution\Delivery;
+use Scarlett\Failures\Coordinator;
+use Scarlett\Models\FailureRecord;
 use Scarlett\Models\StepRecord;
 use Scarlett\States\Phase;
 use Scarlett\States\StateRegistry;
@@ -15,6 +17,12 @@ final class Recovery
     {
         foreach ($this->candidates($workflowId) as $step) {
             if ($this->needsRecovery($step)) {
+                return true;
+            }
+        }
+
+        foreach ($this->failureCandidates($workflowId) as $failure) {
+            if (app(Coordinator::class)->needsRecovery($failure)) {
                 return true;
             }
         }
@@ -31,7 +39,18 @@ final class Recovery
             }
         }
 
+        foreach ($this->failureCandidates($workflowId) as $failure) {
+            if (app(Coordinator::class)->needsRecovery($failure) && app(Coordinator::class)->recover($failure->id)) {
+                $recovered++;
+            }
+        }
+
         return $recovered;
+    }
+
+    private function failureCandidates(?string $workflowId): iterable
+    {
+        return FailureRecord::unfinished()->when($workflowId !== null, fn ($query) => $query->where('workflow_id', $workflowId))->cursor();
     }
 
     private function candidates(?string $workflowId): iterable

@@ -27,4 +27,4 @@ if ($fault) {
 if ($mode === 'lookup-failure') {
     StepRecord::retrieved(static fn () => throw new RuntimeException('Injected worker lookup failure.'));
 }
-exit(Artisan::call('queue:work', ['connection' => 'database', '--queue' => 'scarlett', '--stop-when-empty' => true, '--sleep' => 0, '--tries' => 1, '--max-jobs' => $fault ? 1 : 0]));
+exit(Artisan::call('queue:work', ['connection' => 'database', '--queue' => 'scarlett', '--stop-when-empty' => true, '--sleep' => 0, '--tries' => 1, '--max-jobs' => $fault && $mode !== 'hook-timeout' ? 1 : 0]));

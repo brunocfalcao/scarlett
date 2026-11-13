@@ -51,7 +51,7 @@ final readonly class Workflow
             if ($node->parent !== null && $node->rescues !== null) {
                 throw new InvalidArgumentException('A recovery root cannot also have a parent.');
             }
-            ($node->execution ?? new ExecutionOptions)->snapshot();
+            $node->executionOptions()->snapshot();
             $this->validateSignature($node);
             $indexed[$node->key] = $node;
         }

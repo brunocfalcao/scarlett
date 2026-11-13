@@ -20,6 +20,8 @@ final class Workers
         try {
             if ($lockTable === 'scarlett_control') {
                 DB::table('scarlett_control')->where('id', 'admission')->lockForUpdate()->first();
+            } elseif ($lockTable === 'scarlett_subject_slots') {
+                DB::table($lockTable)->where('id', $workflow)->lockForUpdate()->sole();
             } else {
                 WorkflowRecord::whereKey($workflow)->lockForUpdate()->firstOrFail();
             }

@@ -8,10 +8,11 @@ use Closure;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Scarlett\Definition\ExecutionOptions;
+use Scarlett\Definition\SubjectSlot;
 use Scarlett\Definition\Workflow;
 use Scarlett\Execution\Decision;
 use Scarlett\Execution\Delivery;
+use Scarlett\Execution\FailureCause;
 use Scarlett\Execution\Journal;
 use Scarlett\Execution\Progression;
 use Scarlett\Inputs\InputBindings;
@@ -35,6 +36,16 @@ final class Engine
         private Journal $journal,
         private Delivery $delivery,
     ) {}
+
+    public function replace(SubjectSlot $slot, callable $prepare): ?WorkflowRecord
+    {
+        return app(WorkflowSlots::class)->replace($slot, $prepare);
+    }
+
+    public function current(SubjectSlot $slot): ?string
+    {
+        return app(WorkflowSlots::class)->current($slot);
+    }
 
     public function start(Workflow $definition): WorkflowRecord
     {
@@ -63,7 +74,7 @@ final class Engine
                     'inputs' => $this->bindings->encode($node->inputs, array_merge($dependencies, array_filter([$node->parent, $node->rescues], fn (?string $key): bool => $key !== null))),
                     'parent_key' => $node->parent,
                     'rescues_key' => $node->rescues,
-                    'execution' => ($node->execution ?? new ExecutionOptions)->snapshot(),
+                    'execution' => $node->executionOptions()->snapshot(),
                     'not_before' => $node->notBefore === null ? null : Carbon::instance($node->notBefore)->setTimezone(config('app.timezone')),
                     'priority' => $node->priority,
                     'queue' => $node->queue ?? config('scarlett.queue'),
@@ -179,12 +190,13 @@ final class Engine
         });
     }
 
-    public function decide(string $stepId, string $attempt, Decision $decision, ?string $error = null, bool $verification = false): bool
+    public function decide(string $stepId, string $attempt, Decision $decision, ?string $error = null, bool $verification = false, FailureCause $cause = FailureCause::Decided): bool
     {
-        return (bool) $this->mutate($stepId, function (StepRecord $step) use ($attempt, $decision, $error, $verification): bool {
+        return (bool) $this->mutate($stepId, function (StepRecord $step) use ($attempt, $decision, $error, $verification, $cause): bool {
             if (! $this->owns($step, $attempt)) {
                 return false;
             }
+            $error = $decision->reason ?? $error;
             $step->error = $error;
             if ($decision->state !== null) {
                 if ($decision->producesResult) {
@@ -192,7 +204,7 @@ final class Engine
                 }
                 $step->lease_until = null;
                 $step->save();
-                $this->journal->transition($step, $decision->state, $error);
+                $this->journal->transition($step, $decision->state, $error, $cause);
 
                 return true;
             }
@@ -234,6 +246,7 @@ final class Engine
                     $this->journal->transition($step, Cancelled::class, 'Workflow execution authority withdrawn.');
                 }
             }
+            app(\Scarlett\Failures\Coordinator::class)->cancel($workflow);
             $this->progression->advance($workflow);
 
             return true;
@@ -266,13 +279,13 @@ final class Engine
                 return false;
             }
             $step->error = 'Execution lease expired.';
-            $this->retry($step, $step->action_completed);
+            $this->retry($step, $step->action_completed, cause: FailureCause::AttemptLost);
 
             return true;
         });
     }
 
-    private function retry(StepRecord $step, bool $verification, ?int $delay = null): void
+    private function retry(StepRecord $step, bool $verification, ?int $delay = null, FailureCause $cause = FailureCause::BudgetExhausted): void
     {
         $counter = $verification ? 'verifications' : 'failures';
         $failures = $step->nextFailureCount($verification);
@@ -283,7 +296,7 @@ final class Engine
             $this->progression->enqueue($step, $delay ?? $policy->delay($failures, $verification, $step));
         } else {
             $step->update(['lease_until' => null]);
-            $this->journal->transition($step, Failed::class, $step->error ?? 'Retry budget exhausted.');
+            $this->journal->transition($step, Failed::class, $step->error ?? 'Retry budget exhausted.', $cause);
         }
     }
 
