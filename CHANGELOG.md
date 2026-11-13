@@ -4,6 +4,8 @@
 
 ### Features
 
+- Admission-first transactions for atomic consumer writes and follow-up workflows alongside subject deletion. Action and failure ownership checks now reject cancelled attempts inside older outer transaction snapshots.
+
 - One-query current-workflow lookup for batches of subjects, preserving exact slot identities without consumer mirror columns.
 
 - Package retention commands `scarlett:archive` and `scarlett:purge`, with explicit ages, bounded batches and locked live-work protection. Repeated archiving preserves the original archive timestamp.

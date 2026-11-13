@@ -64,6 +64,12 @@ final class Engine
         return app(SubjectDeletion::class)->delete($subject, $prepare, $guardSubjects);
     }
 
+    /** Wrap before whileCurrent or consumer locks when their transaction will admit new work. */
+    public function withAdmission(callable $operation): mixed
+    {
+        return app(Admission::class)->transaction($operation);
+    }
+
     public function start(Workflow $definition): WorkflowRecord
     {
         app(Configuration::class)->validate();
@@ -118,7 +124,7 @@ final class Engine
             if (! $workflow) {
                 return null;
             }
-            $step = $workflow->steps()->whereKey($stepId)->first();
+            $step = $workflow->steps()->whereKey($stepId)->lockForUpdate()->first();
             if (! $step) {
                 return null;
             }

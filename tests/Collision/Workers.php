@@ -53,7 +53,11 @@ final class Workers
                     throw new \RuntimeException($process->getErrorOutput().$process->getOutput());
                 }
 
-                return json_decode(trim($process->getOutput()), true, flags: JSON_THROW_ON_ERROR);
+                try {
+                    return json_decode(trim($process->getOutput()), true, flags: JSON_THROW_ON_ERROR);
+                } catch (\JsonException $exception) {
+                    throw new \RuntimeException('Invalid worker output: '.$process->getOutput(), previous: $exception);
+                }
             }, $processes);
         } finally {
             if (DB::transactionLevel() > 0) {

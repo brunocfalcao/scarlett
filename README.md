@@ -447,6 +447,13 @@ Acquire application locks inside that callback, recheck application-specific own
 and keep network calls outside it. All affected records must share the same database
 connection. Lease expiry cannot stop an external call already in progress.
 
+When consumer writes also call `Scarlett::start()`, wrap the operation in
+`Scarlett::withAdmission(callable): mixed` **before** taking consumer locks or
+entering `whileCurrent`. It acquires admission first and commits the writes and
+new workflow together. Calling `start()` after those locks without this outer
+wrapper can deadlock against subject deletion.
+[Atomic admission patterns and lock order](docs/consumer-lifecycle.md#admit-follow-up-work-atomically-with-consumer-writes).
+
 | `Scarlett\History` operation | Behavior |
 | --- | --- |
 | `archive($workflowId)` | Archives settled work once; returns false for active/already archived work, throws if missing |

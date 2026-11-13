@@ -165,6 +165,67 @@ Already published transport jobs may still arrive harmlessly. External calls
 already in flight cannot be undone; use the callback veto to preserve any required
 handover protections, and keep post-call database writes inside `whileCurrent`.
 
+## Admit follow-up work atomically with consumer writes
+
+```php
+Scarlett\Engine::withAdmission(callable $operation): mixed
+```
+
+This transaction wrapper acquires shared admission **before** invoking its
+callback. It supports a consumer write and `start()` in the same transaction,
+including a step or failure handler scheduling a separate follow-up workflow.
+It returns the callback's value unchanged. Exceptions roll back all writes and
+admissions; returning `false`/`null` is an ordinary return, not a rollback veto.
+Queue publication waits for the outermost commit. Cooldown still admits held work.
+
+**Required order:** admission, then any owning workflow lock, then consumer rows,
+then `start()`. Call `withAdmission()` before acquiring workflow or consumer locks;
+it cannot repair locks already held. It may be inside an existing transaction only
+if this order is preserved. Ordinary `start()` remains valid without prior locks.
+Calling it after locking consumer rows, or inside an unwrapped `whileCurrent`,
+is unsupported: deletion can hold exclusive admission while waiting for those
+same rows. A subject-only fence would still have this cycle for that subject.
+
+For a follow-up inside a step (the same pattern applies to failure handlers):
+
+```php
+$written = Scarlett::withAdmission(fn () => $context->whileCurrent(
+    function () use ($documentId): void {
+        $document = Document::query()->lockForUpdate()->findOrFail($documentId);
+        $document->markProcessing(); // Consumer-owned database change.
+        Scarlett::start(DocumentWorkflow::definition($document->getKey()));
+    },
+));
+```
+
+For a consumer action that already needs a transaction, make this the transaction
+boundary before locking the subject:
+
+```php
+$workflow = Scarlett::withAdmission(function () use ($documentId) {
+    $document = Document::query()->lockForUpdate()->findOrFail($documentId);
+    $document->markProcessing();
+
+    return Scarlett::start(DocumentWorkflow::definition($document->getKey()));
+});
+```
+
+The application classes/methods above are illustrative. Recheck the subject's
+existence and business eligibility under its consumer lock. If deletion committed
+first, a missing subject must prevent admission. If an attempt was cancelled,
+`whileCurrent` returns `false` without invoking its callback; ownership checks use
+current locking reads even inside an older MySQL transaction snapshot.
+
+Use one database connection and short, replay-safe database callbacks. The wrapper
+uses `scarlett.transaction_attempts`; consumer row ordering still matters and
+external calls must stay outside the transaction. The shared gate permits concurrent
+admissions but makes deletion/cooldown/reopening wait until the enclosing transaction
+ends. Do not call `deleteSubject()`, `cooldown()` or `reopen()` inside the wrapper:
+those operations require exclusive admission. `replace()` retains its own documented
+slot/workflow-before-consumer order; use its preparation callback instead of invoking
+replacement after taking workflow or consumer locks. Ordinary `whileCurrent` writes
+that do not call `start()` need no admission wrapper.
+
 ## Handle every terminal failure durably
 
 ```php

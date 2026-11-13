@@ -99,7 +99,7 @@ final class Coordinator
 
         return DB::transaction(function () use ($id, $workflowId, $operation, $advance): mixed {
             $workflow = WorkflowRecord::whereKey($workflowId)->lockForUpdate()->first();
-            $failure = $workflow?->failures()->whereKey($id)->first();
+            $failure = $workflow?->failures()->whereKey($id)->lockForUpdate()->first();
             if ($failure === null) {
                 return null;
             }

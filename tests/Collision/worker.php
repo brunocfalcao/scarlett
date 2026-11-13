@@ -21,6 +21,9 @@ require dirname(__DIR__, 2).'/vendor/autoload.php';
 $app = Application::create(options: ['extra' => ['providers' => [ScarlettServiceProvider::class], 'dont-discover' => ['*']]]);
 Environment::configure($app);
 $arguments = json_decode($argv[1], true, flags: JSON_THROW_ON_ERROR);
+if (isset($arguments['transaction_attempts'])) {
+    config(['scarlett.transaction_attempts' => $arguments['transaction_attempts']]);
+}
 $ready = $arguments['directory'].'/'.$arguments['worker'].'.ready';
 file_put_contents($ready, 'ready');
 $deadline = microtime(true) + 15;
@@ -30,9 +33,39 @@ while (! file_exists($arguments['directory'].'/release')) {
     }
     usleep(1000);
 }
+if ($arguments['wait_for_admission_waiter'] ?? false) {
+    do {
+        $waiting = DB::selectOne("SELECT COUNT(DISTINCT thread_id) AS total FROM performance_schema.data_locks WHERE object_schema = ? AND object_name = 'scarlett_control' AND lock_status = 'WAITING'", [Environment::DATABASE]);
+        if (microtime(true) > $deadline) {
+            throw new RuntimeException('First admission waiter was not observed.');
+        }
+        if ((int) $waiting->total === 0) {
+            usleep(1000);
+        }
+    } while ((int) $waiting->total === 0);
+}
 $started = microtime(true);
 $engine = app(Engine::class);
 $result = match ($arguments['operation']) {
+    'write-and-admit' => (function () use ($engine, $arguments): bool {
+        $write = function () use ($engine, $arguments): bool {
+            $consumer = DB::table('consumer_records')->where('id', $arguments['subject'])->lockForUpdate()->first();
+            if ($consumer === null) {
+                return false;
+            }
+            DB::table('consumer_records')->where('id', $arguments['subject'])->increment('writes');
+            $engine->start(new Workflow([new Node('follow-up', EchoStep::class)], 'consumer', $arguments['subject']));
+
+            return true;
+        };
+        $operation = fn (): bool => match ($arguments['kind']) {
+            'step' => $engine->whileCurrent($arguments['step'], $arguments['attempt'], $write),
+            'failure' => app(Coordinator::class)->whileCurrent($arguments['failure'], $arguments['attempt'], $write),
+            default => $write(),
+        };
+
+        return $engine->withAdmission($operation);
+    })(),
     'retention' => (function () use ($arguments): array {
         $exit = Artisan::call($arguments['command'], $arguments['options']);
 

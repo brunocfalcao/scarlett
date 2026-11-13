@@ -195,7 +195,12 @@ current source before edits. This package preparation does not migrate that app.
    alone. Existing configured 120-second spacing and 10-second replacement delay
    belong in Freshsites configuration, never in Scarlett. Preserve transactional
    accounting plus durable `ContinueDiscoveryStep` workflows. A new independent
-   workflow is permitted; appending nodes to a running graph is not.
+   workflow is permitted; appending nodes to a running graph is not. When a
+   continuation is admitted from a guarded write, wrap the whole guard with
+   `Scarlett::withAdmission(fn () => $context->whileCurrent($write))`; put `start()`
+   inside `$write`. Admission must be locked before the owning workflow and
+   reservation/consumer rows. Plain `start()` inside an unwrapped guard is unsafe
+   alongside deletion. See [the atomic admission contract](docs/consumer-lifecycle.md#admit-follow-up-work-atomically-with-consumer-writes).
 6. **Carry execution policies explicitly.** Inventory every class's timeout and
    retry/backoff override; current timeouts range through 1,620 seconds. Put these
    values in consumer configuration and return `ExecutionOptions` from the static
@@ -211,7 +216,12 @@ current source before edits. This package preparation does not migrate that app.
    failure handling that understands persisted send claims. Scarlett does not
    guarantee exactly-once mail or retain a killed worker's in-memory flags.
    Keep `sites:send-emails` and its business schedule. It already queues only due
-   messages; engine scheduling does not replace this application policy.
+   messages; engine scheduling does not replace this application policy. For an
+   approve/publish database action followed by send-workflow admission, use
+   `Scarlett::withAdmission($operation)` before locking the site/address rows.
+   Inside it, lock/recheck the site, write the publication state and call `start()`.
+   Both commit or roll back together; a subject deleted first must prevent admission.
+   Do not add the wrapper after consumer locks are already held.
 8. **Rewrite projections and cleanup.** Update `WorkProgress`, `AdminActivity`,
    `SitePage`, `Site` send eligibility, `EmailPacer`, `DiscoveryRunner` and
    `SiteDeleter`. Associate all independent site workflows via subject IDs, and

@@ -11,6 +11,18 @@ use Scarlett\Models\WorkflowRecord;
 
 final class Admission
 {
+    /** Acquire admission before workflow or consumer locks; callbacks must be replay-safe database work. */
+    public function transaction(callable $operation): mixed
+    {
+        app(Configuration::class)->validate();
+
+        return DB::transaction(function () use ($operation): mixed {
+            DB::table('scarlett_control')->where('id', 'admission')->sharedLock()->sole();
+
+            return $operation();
+        }, (int) config('scarlett.transaction_attempts'));
+    }
+
     public function cooldown(): void
     {
         DB::transaction(function (): void {
