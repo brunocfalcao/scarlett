@@ -416,6 +416,11 @@ return a `Workflow` to replace it, or `null`/`false` to roll everything back.
 untouched. Call replacement before taking application locks.
 [See signatures, transaction rules and examples](docs/consumer-lifecycle.md#replace-the-current-workflow-of-a-subject).
 
+For list screens, `Scarlett::currentForSubjects($type, $subjectIds, $slotName)`
+returns `subjectId => workflowId` in one query. Missing/deleted assignments are
+omitted; an empty input makes no query. String and integer IDs are accepted.
+[Batch lookup semantics](docs/consumer-lifecycle.md#read-current-workflows-for-a-page-of-subjects).
+
 For subject removal, `Scarlett::deleteSubject(new Subject($type, $id), $prepare,
 guardSubjects: $relatedSubjects)` locks workflows before the consumer veto check.
 Return `true` to revoke every target lane and delete its history; `false`/`null`

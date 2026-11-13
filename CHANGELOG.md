@@ -4,6 +4,8 @@
 
 ### Features
 
+- One-query current-workflow lookup for batches of subjects, preserving exact slot identities without consumer mirror columns.
+
 - Package retention commands `scarlett:archive` and `scarlett:purge`, with explicit ages, bounded batches and locked live-work protection. Repeated archiving preserves the original archive timestamp.
 
 - Atomic subject deletion across all workflow lanes and history, with pre-revocation vetoes and related-subject guards for consumer-owned checks.

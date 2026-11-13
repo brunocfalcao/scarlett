@@ -65,6 +65,7 @@ never discard them to force a schema downgrade.
 | Replace the current scan/revision | `replace(SubjectSlot, callable): ?WorkflowRecord`; callback veto rolls back cancellation and consumer writes |
 | Delete a subject and every workflow lane | `deleteSubject(Subject, callable, guardSubjects: [])`; pre-revocation veto, atomic cleanup and protected related subjects |
 | Current workflow for progress screens | `current(SubjectSlot): ?string`; no mirrored consumer column required |
+| Current workflows for list screens | `currentForSubjects(string $subjectType, array $subjectIds, string $slotName): array`; one query returning `subjectId => workflowId` |
 | Confirmation | `verify(Context, mixed $result): bool`; retries only verification after saving the business result |
 | Throttling | `Policies\Throttle`, `Decision::throttle()` or `Exceptions\Throttled`; no failure-budget consumption |
 | Obsolete-worker write guard | `Context::whileCurrent(callable): bool` for database writes; retain consumer ownership checks inside it |
@@ -215,7 +216,12 @@ current source before edits. This package preparation does not migrate that app.
    `SitePage`, `Site` send eligibility, `EmailPacer`, `DiscoveryRunner` and
    `SiteDeleter`. Associate all independent site workflows via subject IDs, and
    distinguish scan/revision/pitch/reminder in metadata. Use `current(SubjectSlot)`
-   for progress screens instead of mirroring a workflow ID on the site. Map aliases explicitly:
+   for a single progress screen, or `currentForSubjects($siteType, $siteIds, $slotName)`
+   for the Sites list and live notices. The batch returns `subjectId => workflowId`
+   in one query, omitting missing/deleted assignments; pass page IDs as strings or
+   integers. Keep workflow IDs in Scarlett rather than mirroring them on the site.
+   See [batch read semantics](docs/consumer-lifecycle.md#read-current-workflows-for-a-page-of-subjects).
+   Map aliases explicitly:
    old Dispatched becomes Queued; WaitingForChildren is a live parent, not a
    finished step. For activity duration use step timestamps/history. Preserve
    deletion refusal during a mail handover and delayed file cleanup. Do not

@@ -68,6 +68,43 @@ same database connection. Laravel may retry deadlocked transactions under
 with external effects scheduled after commit. No consumer replacement retry loop
 is needed. An enclosing transaction keeps publication deferred until its commit.
 
+## Read current workflows for a page of subjects
+
+```php
+Scarlett\Engine::currentForSubjects(
+    string $subjectType,
+    array $subjectIds,
+    string $slotName,
+): array
+```
+
+Pass string or integer subject IDs, for example:
+
+```php
+$currentIds = Scarlett::currentForSubjects('document', $documents->modelKeys(), 'processing');
+// subjectId => workflowId
+```
+
+The method executes **one SELECT** for a non-empty batch and no query for an empty
+array. It reads the same assignments as `current(SubjectSlot)`: held, running,
+completed, failed and archived workflows remain current until replaced or deleted.
+Missing slots, null pointers and deleted workflow history are omitted from the
+map. Independent workflows and other types/slots are excluded. No consumer mirror
+column or knowledge of Scarlett's tables is required.
+
+Integers are converted to their string identity (`0` and `'0'` identify the same
+subject); other values are rejected before querying. Non-empty batches use the
+same non-empty UTF-8 identity validation as `SubjectSlot`. Matching remains exact
+for case, accents and trailing spaces on both SQLite and MySQL. Duplicate IDs
+collapse, and results preserve the first requested order. PHP's normal array-key
+rules apply: numeric strings such as `'42'` become integer keys; `'042'` stays a
+string. The return type is `array<string|int, string>`.
+
+Pass the current page's IDs; the query uses one bound parameter per distinct slot
+and is subject to the database's parameter limits. This is a read, not an ownership
+lock: assignments can change afterward. Continue using `whileCurrent` for guarded
+writes. The package does not cache this mapping across refreshes.
+
 ## Delete all workflows of a subject
 
 ```php

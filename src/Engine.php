@@ -49,6 +49,15 @@ final class Engine
         return app(WorkflowSlots::class)->current($slot);
     }
 
+    /**
+     * @param  array<array-key, string|int>  $subjectIds
+     * @return array<string|int, string>
+     */
+    public function currentForSubjects(string $subjectType, array $subjectIds, string $slotName): array
+    {
+        return app(WorkflowSlots::class)->currentForSubjects($subjectType, $subjectIds, $slotName);
+    }
+
     /** @param list<Subject> $guardSubjects */
     public function deleteSubject(Subject $subject, callable $prepare, array $guardSubjects = []): bool
     {

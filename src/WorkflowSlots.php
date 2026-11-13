@@ -54,7 +54,39 @@ final class WorkflowSlots
 
     public function current(SubjectSlot $slot): ?string
     {
-        return DB::table('scarlett_subject_slots')->join('scarlett_workflows', 'scarlett_workflows.id', '=', 'scarlett_subject_slots.workflow_id')
-            ->where('scarlett_subject_slots.id', $slot->id())->value('scarlett_workflows.id');
+        return $this->currentForSubjects($slot->subjectType, [$slot->subjectId], $slot->name)[$slot->subjectId] ?? null;
+    }
+
+    /**
+     * @param  array<array-key, string|int>  $subjectIds
+     * @return array<string|int, string>
+     */
+    public function currentForSubjects(string $subjectType, array $subjectIds, string $slotName): array
+    {
+        $subjectsBySlot = [];
+        foreach ($subjectIds as $subjectId) {
+            if (! is_string($subjectId) && ! is_int($subjectId)) {
+                throw new InvalidArgumentException('Subject IDs must be strings or integers.');
+            }
+            $slot = new SubjectSlot($subjectType, (string) $subjectId, $slotName);
+            $subjectsBySlot[$slot->id()] = $slot->subjectId;
+        }
+        if ($subjectsBySlot === []) {
+            return [];
+        }
+
+        // Hashed identities preserve exact matching independently of database collation.
+        $assignments = DB::table('scarlett_subject_slots')
+            ->join('scarlett_workflows', 'scarlett_workflows.id', '=', 'scarlett_subject_slots.workflow_id')
+            ->whereIn('scarlett_subject_slots.id', array_keys($subjectsBySlot))
+            ->pluck('scarlett_workflows.id as workflow_id', 'scarlett_subject_slots.id as slot_id');
+        $current = [];
+        foreach ($subjectsBySlot as $slotId => $subjectId) {
+            if ($assignments->has($slotId)) {
+                $current[$subjectId] = $assignments->get($slotId);
+            }
+        }
+
+        return $current;
     }
 }
