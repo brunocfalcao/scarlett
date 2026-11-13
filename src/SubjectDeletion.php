@@ -16,8 +16,8 @@ use Scarlett\Models\WorkflowRecord;
 final class SubjectDeletion
 {
     /**
-     * @param callable(Collection<int, WorkflowRecord>): (bool|null) $prepare
-     * @param list<Subject> $guardSubjects Additional subjects locked for veto checks only.
+     * @param  callable(Collection<int, WorkflowRecord>): (bool|null)  $prepare
+     * @param  list<Subject>  $guardSubjects  Additional subjects locked for veto checks only.
      */
     public function delete(Subject $subject, callable $prepare, array $guardSubjects = []): bool
     {
