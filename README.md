@@ -12,6 +12,7 @@
   <img src="https://img.shields.io/badge/Laravel-13-FF2D20" alt="Laravel 13">
   <img src="https://img.shields.io/badge/PHP-8.4%2B-777BB4" alt="PHP 8.4 or newer">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-334155" alt="MIT license"></a>
+  <a href="#development-transparency"><img src="https://img.shields.io/badge/AI-developed-7C3AED" alt="AI developed"></a>
 </p>
 
 <p align="center">
@@ -477,3 +478,8 @@ Local tests use Pest TIA with Herd coverage or PCOV/Xdebug; explicit selections 
 directly. CI runs exhaustive non-TIA tests. `composer format` applies Laravel Pint.
 
 See the [changelog](CHANGELOG.md) for changes. Scarlett is [MIT licensed](LICENSE).
+
+## Development transparency
+
+Scarlett is developed with AI coding assistants, guided by Bruno Falcão.
+The package includes automated tests and continuous integration to verify its behavior.
