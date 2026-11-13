@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\Execution\Decision;
 use Scarlett\Execution\Runner;
 use Scarlett\Models\StepRecord;
 use Scarlett\Tests\Fixtures\ControlledStep;
+use Scarlett\Tests\Fixtures\OwnershipStep;
 
 beforeEach(function () {
     ControlledStep::$actions = [];
@@ -107,4 +109,11 @@ it('propagates cancellation through a held subtree before admission opens', func
     $engine->cancel($flow->steps()->where('key', 'parent')->sole()->id);
     expect(statesOf($flow->id))->toBe(['child' => 'cancelled', 'parent' => 'cancelled']);
     expect($flow->fresh()->status)->toBe('cancelled');
+});
+it('does not enter a later lifecycle hook after ownership is lost during throttling', function () {
+    OwnershipStep::$prechecks = 0;
+    $flow = app(Engine::class)->start(new Workflow([new Node('owned', OwnershipStep::class)]));
+    runStep($flow->id, 'owned');
+    expect(statesOf($flow->id))->toBe(['owned' => 'stopped']);
+    expect(OwnershipStep::$prechecks)->toBe(0);
 });

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 — 2026-11-13
+
+### Fixes
+
+- [BUG FIX] Recheck attempt ownership between throttle hooks and preconditions so obsolete work cannot enter later hooks.
+
 ## 0.1.0 — 2026-11-13
 
 ### Features

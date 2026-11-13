@@ -40,7 +40,14 @@ final class Runner
             if ($record->action_completed) {
                 $result = $this->codec->decode($record->result);
             } else {
-                $delay = $step->throttle()?->delay($context);
+                $throttle = $step->throttle();
+                if (! $context->isCurrent()) {
+                    return;
+                }
+                $delay = $throttle?->delay($context);
+                if (! $context->isCurrent()) {
+                    return;
+                }
                 if ($delay !== null) {
                     $this->engine->decide($stepId, $attempt, Decision::throttle($delay));
 
