@@ -67,3 +67,40 @@ it('cancels queued children once their parent fails', function () {
     runStep($flow->id, 'queued');
     expect(ControlledStep::$actions)->toBe(['parent' => 1]);
 });
+
+it('keeps numeric-looking parent keys distinct', function (string $root, string $branch) {
+    Queue::fake();
+    $leaf = $branch.'.leaf';
+    $flow = app(Engine::class)->start(new Workflow([
+        controlled($root), controlled($branch, parent: $root), controlled($leaf, parent: $branch),
+    ]));
+    expect($flow->fresh()->status)->toBe('running');
+    runStep($flow->id, $root);
+    runStep($flow->id, $branch);
+    runStep($flow->id, $leaf);
+    expect($flow->fresh()->status)->toBe('completed');
+    expect($flow->steps()->get()->map(fn ($step) => (string) $step->state)->all())->toBe(['completed', 'completed', 'completed']);
+})->with([['1', '1.0'], ['01', '1'], ['1e1', '10'], ['a', 'a.0']]);
+
+it('persists progression failure reasons for recovery consumers', function () {
+    Queue::fake();
+    $flow = app(Engine::class)->start(new Workflow([controlled('parent'), controlled('child', 'fail', parent: 'parent'), controlled('after', stage: 1)]));
+    runStep($flow->id, 'parent');
+    runStep($flow->id, 'child');
+    expect($flow->steps()->where('key', 'parent')->sole()->error)->toBe('A child failed.');
+    expect($flow->steps()->where('key', 'after')->sole()->error)->toBe('Prerequisite did not succeed.');
+});
+
+it('binds results from a zero-valued parent or rescue owner key', function (string $key, bool $rescue) {
+    Queue::fake();
+    $flow = app(Engine::class)->start(new Workflow([
+        new \Scarlett\Definition\Node($key, ControlledStep::class, inputs: ['name' => 'owner', 'mode' => $rescue ? 'verify' : 'success', 'value' => 42], execution: new \Scarlett\Definition\ExecutionOptions(verificationAttempts: 1)),
+        new \Scarlett\Definition\Node('consumer', \Scarlett\Tests\Fixtures\EchoStep::class, inputs: ['value' => new \Scarlett\Inputs\FromResult($key)], parent: $rescue ? null : $key, rescues: $rescue ? $key : null),
+    ]));
+    expect((string) $flow->steps()->where('key', 'consumer')->sole()->state)->toBe('pending');
+    runStep($flow->id, $key);
+    expect((string) $flow->steps()->where('key', 'consumer')->sole()->state)->toBe('queued');
+    runStep($flow->id, 'consumer');
+    expect(app(\Scarlett\Inputs\PayloadCodec::class)->decode($flow->steps()->where('key', 'consumer')->sole()->result))->toBe(42);
+    expect($flow->fresh()->status)->toBe($rescue ? 'failed' : 'completed');
+})->with([['0', false], ['0', true], ['owner', false], ['owner', true]]);

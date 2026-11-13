@@ -64,3 +64,35 @@ it('serializes admission against cooldown without partially starting a held work
     $next = app(Engine::class)->start(new Workflow([controlled('next')]));
     expect($next->status)->toBe('held');
 });
+
+it('serializes consumer database writes with workflow revocation and rejects every later write', function () {
+    \Illuminate\Support\Facades\Schema::create('consumer_records', function (\Illuminate\Database\Schema\Blueprint $table): void {
+        $table->uuid('id')->primary();
+        $table->integer('writes')->default(0);
+    });
+    $flow = app(Engine::class)->start(new Workflow([controlled('a')]));
+    $record = (string) \Illuminate\Support\Str::uuid();
+    DB::table('consumer_records')->insert(['id' => $record, 'writes' => 0]);
+    $step = $flow->steps()->sole();
+    app(Engine::class)->claim($step->id, $step->attempt);
+    expect(DB::table('consumer_records')->where('id', $record)->value('writes'))->toBe(0);
+    $base = ['step' => $step->id, 'attempt' => $step->attempt, 'workflow' => $flow->id, 'record' => $record];
+    $results = Workers::race($flow->id, [['operation' => 'write'] + $base, ['operation' => 'revoke'] + $base]);
+    expect($results[1]['result'])->toBeTrue();
+    expect(DB::table('consumer_records')->where('id', $record)->value('writes'))->toBe((int) $results[0]['result']);
+    expect($flow->fresh()->status)->toBe('cancelled');
+    expect(app(Engine::class)->whileCurrent($step->id, $step->attempt, fn () => DB::table('consumer_records')->where('id', $record)->increment('writes')))->toBeFalse();
+    expect(DB::table('consumer_records')->where('id', $record)->value('writes'))->toBe((int) $results[0]['result']);
+});
+
+it('holds a shared admission lock while creating a workflow', function () {
+    \Illuminate\Support\Facades\DB::beginTransaction();
+    try {
+        $flow = app(\Scarlett\Engine::class)->start(new \Scarlett\Definition\Workflow([controlled('shared-gate')]));
+        $locks = \Illuminate\Support\Facades\DB::select("SELECT lock_mode FROM performance_schema.data_locks WHERE object_schema = ? AND object_name = ? AND lock_type = ? AND lock_data = ? LIMIT 10", [\Scarlett\Tests\Collision\Environment::DATABASE, 'scarlett_control', 'RECORD', "'admission'"]);
+        expect(array_column($locks, 'lock_mode'))->toBe(['S,REC_NOT_GAP']);
+        expect($flow->status)->toBe('running');
+    } finally {
+        \Illuminate\Support\Facades\DB::rollBack();
+    }
+});

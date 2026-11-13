@@ -94,3 +94,20 @@ it('does not publish the same delivery twice during overlapping flushes', functi
     app(Delivery::class)->flush($flow->id);
     expect($dispatches)->toBe(1);
 });
+
+it('returns committed work when the publication lookup fails', function () {
+    $fail = true;
+    \Scarlett\Models\StepRecord::retrieved(function () use (&$fail): void {
+        if ($fail && DB::transactionLevel() === 0) {
+            throw new RuntimeException('Publication lookup unavailable.');
+        }
+    });
+    $flow = app(Engine::class)->start(new Workflow([controlled('durable')]));
+    $fail = false;
+    $step = $flow->steps()->sole();
+    expect($flow->fresh()->status)->toBe('running')->and((string) $step->state)->toBe('queued');
+    expect(DB::table('scarlett_deliveries')->where('step_id', $step->id)->value('sent_at'))->toBeNull();
+    expect(app(Engine::class)->resume($flow->id))->toBe(1);
+    runStep($flow->id, 'durable');
+    expect($flow->fresh()->status)->toBe('completed');
+});

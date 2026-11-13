@@ -33,13 +33,11 @@ final class Runner
             if (! $context->isCurrent()) {
                 return;
             }
-            $step = $this->invoker->construct($record->class, $inputs);
+            $step = $this->invoker->construct($record->class, $inputs, $context);
             if (! $context->isCurrent()) {
                 return;
             }
-            if ($record->action_completed) {
-                $result = $this->codec->decode($record->result);
-            } else {
+            if (! $record->action_completed) {
                 $throttle = $step->throttle();
                 if (! $context->isCurrent()) {
                     return;
@@ -65,10 +63,7 @@ final class Runner
                 $result = $decision?->result;
                 $state = $decision?->state ?? Completed::class;
                 if ($decision === null) {
-                    $result = $this->invoker->handle($step, $inputs);
-                }
-                if (! $this->engine->saveAction($stepId, $attempt, $result, $state)) {
-                    return;
+                    $result = $this->invoker->handle($step, $inputs, $context);
                 }
             }
         } catch (Throwable $exception) {
@@ -76,14 +71,19 @@ final class Runner
                 return;
             }
             try {
-                $decision = $exception instanceof Throttled ? Decision::throttle($exception->seconds) : ($step?->onException($exception, $context) ?? Decision::fail());
+                $decision = match (true) {
+                    $exception instanceof Throttled => Decision::throttle($exception->seconds),
+                    $step !== null => $step->onException($exception, $context),
+                    default => app(config('scarlett.input_exception_handler'))->decide($exception, $context),
+                };
+                if ($step === null && $decision->producesResult) {
+                    throw new \InvalidArgumentException('Input exception handlers cannot complete an unconstructed step.');
+                }
                 if ($decision->producesResult) {
                     $result = $decision->result;
-                    if (! $this->engine->saveAction($stepId, $attempt, $result, $decision->state)) {
-                        return;
-                    }
+                    $state = $decision->state;
                 } else {
-                    $this->engine->decide($stepId, $attempt, $decision, $exception->getMessage());
+                    $this->engine->decide($stepId, $attempt, $decision, $exception->getMessage(), verification: $record->action_completed);
 
                     return;
                 }
@@ -93,11 +93,26 @@ final class Runner
                 return;
             }
         }
+        if (! $record->action_completed) {
+            try {
+                if (! $this->engine->saveAction($stepId, $attempt, $result, $state)) {
+                    return;
+                }
+            } catch (Throwable $persistenceFailure) {
+                $this->engine->decide($stepId, $attempt, Decision::fail(), $persistenceFailure->getMessage());
+
+                return;
+            }
+        }
         // Confirmation failures never re-enter the business action or its exception handler.
         if (! $context->isCurrent()) {
             return;
         }
         try {
+            $result = $this->codec->decode($record->refresh()->result);
+            if (! $context->isCurrent()) {
+                return;
+            }
             $verified = $step->verify($context, $result);
         } catch (Throwable $exception) {
             $this->engine->decide($stepId, $attempt, Decision::retry(), $exception->getMessage(), verification: true);

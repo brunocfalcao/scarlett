@@ -7,6 +7,7 @@ namespace Scarlett\Inputs;
 use BackedEnum;
 use DateTimeImmutable;
 use DateTimeInterface;
+use DateTimeZone;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use InvalidArgumentException;
@@ -14,7 +15,9 @@ use Scarlett\Contracts\PayloadMapper;
 
 final class PayloadCodec
 {
-    private const VERSION = 1;
+    private const VERSION = 2;
+
+    private const READABLE_VERSIONS = [1, self::VERSION];
 
     public function encode(mixed $value): array
     {
@@ -23,7 +26,7 @@ final class PayloadCodec
 
     public function decode(array $payload): mixed
     {
-        if (($payload['version'] ?? null) !== self::VERSION) {
+        if (! in_array($payload['version'] ?? null, self::READABLE_VERSIONS, true)) {
             throw new InvalidArgumentException('Unsupported Scarlett payload version.');
         }
 
@@ -43,7 +46,7 @@ final class PayloadCodec
             return ['type' => 'array', 'data' => array_map($this->pack(...), $value)];
         }
         if ($value instanceof DateTimeInterface) {
-            return ['type' => 'date', 'data' => $value->format('Y-m-d\TH:i:s.uP')];
+            return ['type' => 'date', 'data' => $value->format('Y-m-d\TH:i:s.uP'), 'timezone' => $value->getTimezone()->getName()];
         }
         if ($value instanceof Collection) {
             return ['type' => 'collection', 'data' => $this->pack($value->all())];
@@ -75,13 +78,20 @@ final class PayloadCodec
             'scalar' => $node['data'],
             'float' => (float) $node['data'],
             'array' => array_map($this->unpack(...), $node['data']),
-            'date' => new DateTimeImmutable($node['data']),
+            'date' => $this->restoreDate($node),
             'collection' => new Collection($this->unpack($node['data'])),
             'enum' => $this->registered('enums', $node['alias'])::from($node['data']),
             'mapped' => app($this->registered('payload_mappers', $node['alias']))->decode($this->unpack($node['data'])),
             'model' => $this->restoreModel($node),
             default => throw new InvalidArgumentException('Unknown Scarlett payload type.'),
         };
+    }
+
+    private function restoreDate(array $node): DateTimeImmutable
+    {
+        $date = new DateTimeImmutable($node['data']);
+
+        return isset($node['timezone']) ? $date->setTimezone(new DateTimeZone($node['timezone'])) : $date;
     }
 
     private function registered(string $registry, string $alias): string

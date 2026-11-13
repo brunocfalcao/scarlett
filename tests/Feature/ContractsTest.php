@@ -57,3 +57,61 @@ it('keeps ordered recovery stages behind all parallel recovery outcomes', functi
     runStep($flow->id, 'r2');
     expect(statesOf($flow->id)['join'])->toBe('queued');
 });
+
+it('attributes an unreachable completion state to the choosing step', function (bool $parent) {
+    Queue::fake();
+    config(['scarlett.payload_mappers' => ['amount' => AmountMapper::class], 'scarlett.states' => [Approved::class],
+        'scarlett.transitions' => $parent ? [[Running::class, Approved::class]] : []]);
+    $nodes = [new Node('owner', ApproveStep::class)];
+    if ($parent) {
+        $nodes[] = controlled('child', parent: 'owner');
+    }
+    $flow = app(Engine::class)->start(new Workflow($nodes));
+    expect(statesOf($flow->id)['owner'])->toBe('queued');
+    runStep($flow->id, 'owner');
+    $owner = $flow->steps()->where('key', 'owner')->sole();
+    expect((string) $owner->state)->toBe('failed')->and($owner->error)->toContain('scarlett.transitions');
+    if ($parent) {
+        expect(statesOf($flow->id)['child'])->toBe('cancelled');
+    }
+})->with([false, true]);
+
+it('rejects result-producing completion with skip semantics', function () {
+    Queue::fake();
+    $flow = app(Engine::class)->start(new Workflow([
+        new Node('invalid', \Scarlett\Tests\Fixtures\CompletionStep::class, inputs: ['state' => \Scarlett\States\Skipped::class, 'value' => 'kept']),
+        controlled('child', parent: 'invalid'), controlled('skip', 'skip'),
+    ]));
+    runStep($flow->id, 'invalid');
+    runStep($flow->id, 'skip');
+    expect(statesOf($flow->id))->toBe(['child' => 'cancelled', 'invalid' => 'failed', 'skip' => 'skipped']);
+    expect($flow->steps()->where('key', 'invalid')->sole()->has_result)->toBeFalse();
+    expect($flow->steps()->where('key', 'skip')->sole()->has_result)->toBeFalse();
+});
+
+it('rejects mapper configuration mistakes before admitting scalar-only workflows', function () {
+    config(['scarlett.payload_mappers' => ['invalid' => stdClass::class]]);
+    expect(fn () => app(Engine::class)->start(new Workflow([controlled('scalar')])))->toThrow(InvalidArgumentException::class, 'scarlett.payload_mappers');
+});
+
+it('attributes denied completion guards to their owner without rolling back children', function (bool $parent, bool $allowed) {
+    Queue::fake();
+    \Scarlett\Tests\Fixtures\GuardedApproval::$allowed = $allowed;
+    config(['scarlett.payload_mappers' => ['amount' => AmountMapper::class], 'scarlett.states' => [Approved::class],
+        'scarlett.transitions' => [
+            [Running::class, Approved::class, \Scarlett\Tests\Fixtures\GuardedApproval::class],
+            [WaitingForChildren::class, Approved::class, \Scarlett\Tests\Fixtures\GuardedApproval::class],
+        ]]);
+    $nodes = [new Node('owner', ApproveStep::class)];
+    if ($parent) {
+        $nodes[] = controlled('child', parent: 'owner');
+    }
+    $flow = app(Engine::class)->start(new Workflow($nodes));
+    runStep($flow->id, 'owner');
+    if ($parent) {
+        runStep($flow->id, 'child');
+        expect(statesOf($flow->id)['child'])->toBe('completed');
+    }
+    expect(statesOf($flow->id)['owner'])->toBe($allowed ? 'approved' : 'failed');
+    expect($flow->fresh()->status)->toBe($allowed ? 'completed' : 'failed');
+})->with([[false, false], [true, false], [false, true], [true, true]]);

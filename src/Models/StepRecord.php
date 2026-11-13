@@ -6,6 +6,7 @@ namespace Scarlett\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Scarlett\Definition\ExecutionOptions;
 use Scarlett\States\StepState;
 use Spatie\ModelStates\HasStates;
 
@@ -42,12 +43,20 @@ class StepRecord extends Model
         'available_at',
         'lease_until',
         'error',
+        'execution',
+        'not_before',
+        'started_at',
+        'finished_at',
     ];
 
     protected function casts(): array
     {
         return [
             'state' => StepState::class,
+            'execution' => 'array',
+            'not_before' => 'immutable_datetime',
+            'started_at' => 'immutable_datetime',
+            'finished_at' => 'immutable_datetime',
             'dependencies' => 'array',
             'inputs' => 'array',
             'result' => 'array',
@@ -58,6 +67,16 @@ class StepRecord extends Model
             'failures' => 'integer',
             'verifications' => 'integer',
         ];
+    }
+
+    public function nextFailureCount(bool $verification = false): int
+    {
+        return ($verification ? $this->verifications : $this->failures) + 1;
+    }
+
+    public function executionOptions(): array
+    {
+        return $this->execution ?? (new ExecutionOptions)->snapshot();
     }
 
     public function workflow(): BelongsTo

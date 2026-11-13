@@ -60,10 +60,9 @@ it('fails an absent predecessor result rather than inventing a value', function 
 });
 it('rejects coercion of persisted inputs into incompatible scalar signatures', function () {
     Queue::fake();
-    $flow = app(Engine::class)->start(new Workflow([new Node('typed', TypedStep::class, inputs: ['amount' => new Amount(2), 'settings' => new Service(Repository::class), 'multiplier' => '3'])]));
-    runStep($flow->id, 'typed');
+    expect(fn () => app(Engine::class)->start(new Workflow([new Node('typed', TypedStep::class, inputs: ['amount' => new Amount(2), 'settings' => new Service(Repository::class), 'multiplier' => '3'])])))
+        ->toThrow(InvalidArgumentException::class, 'multiplier');
     expect(TypedStep::$received)->toBe([]);
-    expect((string) $flow->steps()->sole()->state)->not->toBe('completed');
 });
 it('preserves floating point types through the persisted JSON representation', function () {
     $codec = app(PayloadCodec::class);

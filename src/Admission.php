@@ -24,10 +24,10 @@ final class Admission
         DB::transaction(function (): void {
             DB::table('scarlett_control')->where('id', 'admission')->lockForUpdate()->first();
             DB::table('scarlett_control')->where('id', 'admission')->update(['cooldown' => false]);
-            foreach (WorkflowRecord::whereNull('started_at')->whereNull('finished_at')->lockForUpdate()->get() as $workflow) {
+            foreach (WorkflowRecord::where('status', 'held')->lockForUpdate()->get() as $workflow) {
                 $workflow->update(['status' => 'running', 'started_at' => now()]);
                 app(Progression::class)->advance($workflow);
-                DB::afterCommit(fn () => app(Delivery::class)->flush($workflow->id));
+                app(Delivery::class)->afterCommit($workflow->id);
             }
         }, (int) config('scarlett.transaction_attempts'));
     }

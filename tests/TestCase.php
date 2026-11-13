@@ -23,6 +23,6 @@ class TestCase extends Orchestra
 
     protected function defineDatabaseMigrations(): void
     {
-        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+        $this->artisan('migrate', ['--force' => true])->assertExitCode(0);
     }
 }

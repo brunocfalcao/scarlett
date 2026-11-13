@@ -18,7 +18,7 @@ use Scarlett\Tests\Fixtures\EchoStep;
 use Scarlett\Tests\Fixtures\TypedStep;
 use Symfony\Component\Process\Process;
 
-it('round trips a mapped result through a real database queue and independent worker', function () {
+beforeEach(function () {
     Schema::create('jobs', function (Blueprint $table): void {
         $table->bigIncrements('id');
         $table->string('queue')->index();
@@ -28,6 +28,9 @@ it('round trips a mapped result through a real database queue and independent wo
         $table->unsignedInteger('available_at');
         $table->unsignedInteger('created_at');
     });
+});
+
+it('round trips a mapped result through a real database queue and independent worker', function () {
     config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql',
         'scarlett.payload_mappers' => ['amount-v1' => AmountMapper::class]]);
     $flow = app(Engine::class)->start(new Workflow([
@@ -42,4 +45,91 @@ it('round trips a mapped result through a real database queue and independent wo
     $worker->mustRun();
     expect(statesOf($flow->id))->toBe(['source' => 'completed', 'typed' => 'completed']);
     expect(app(PayloadCodec::class)->decode($flow->steps()->where('key', 'typed')->sole()->result)->minorUnits)->toBe(246);
+});
+
+it('keeps delayed jobs in the real queue until due and preserves primitive timeout routing', function () {
+    config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql']);
+    $flow = app(Engine::class)->start(new Workflow([
+        new Node('delayed', EchoStep::class, inputs: ['value' => 'due-result'], notBefore: now()->addHour(), execution: new \Scarlett\Definition\ExecutionOptions(workerTimeout: 900, leaseSeconds: 1000)),
+    ]));
+    $step = $flow->steps()->sole();
+    $job = DB::table('jobs')->where('queue', 'scarlett')->sole();
+    $payload = json_decode($job->payload, true, flags: JSON_THROW_ON_ERROR);
+    expect($payload['timeout'])->toBe(900);
+    expect($job->available_at)->toBe($step->not_before->getTimestamp());
+    $worker = new Process([PHP_BINARY, __DIR__.'/queue-worker.php']);
+    $worker->setTimeout(20);
+    $worker->mustRun();
+    expect(statesOf($flow->id))->toBe(['delayed' => 'queued']);
+    expect(DB::table('jobs')->where('id', $job->id)->value('attempts'))->toBe(0);
+    // Move the persisted clock boundary without waiting an hour in the test process.
+    $step->update(['not_before' => now()->subSecond(), 'available_at' => now()->subSecond()]);
+    DB::table('jobs')->where('id', $job->id)->update(['available_at' => now()->subSecond()->getTimestamp()]);
+    $worker->mustRun();
+    expect(statesOf($flow->id))->toBe(['delayed' => 'completed']);
+    expect(app(PayloadCodec::class)->decode($step->fresh()->result))->toBe('due-result');
+    expect(DB::table('jobs')->where('id', $job->id)->exists())->toBeFalse();
+});
+
+it('releases an early delivery and executes its later transport attempt without recovery', function () {
+    config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql']);
+    $flow = app(Engine::class)->start(new Workflow([
+        new Node('early', EchoStep::class, inputs: ['value' => 'once-due'], notBefore: now()->addMinute()),
+    ]));
+    $step = $flow->steps()->sole();
+    DB::table('jobs')->where('queue', 'scarlett')->update(['available_at' => now()->subSecond()->getTimestamp()]);
+    $worker = new Process([PHP_BINARY, __DIR__.'/queue-worker.php']);
+    $worker->setTimeout(20);
+    $worker->mustRun();
+    expect(statesOf($flow->id))->toBe(['early' => 'queued']);
+    $released = DB::table('jobs')->where('queue', 'scarlett')->sole();
+    expect($released->attempts)->toBe(1)->and($released->available_at)->toBe($step->available_at->getTimestamp());
+    $step->update(['not_before' => now()->subSecond(), 'available_at' => now()->subSecond()]);
+    DB::table('jobs')->where('id', $released->id)->update(['available_at' => now()->subSecond()->getTimestamp()]);
+    $worker->mustRun();
+    expect($flow->fresh()->status)->toBe('completed');
+    expect($step->fresh()->failures)->toBe(0);
+});
+
+
+it('fails unexpected transport errors without a cache and retains recoverable engine intent', function () {
+    config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql']);
+    $flow = app(Engine::class)->start(new Workflow([
+        new Node('recoverable', EchoStep::class, inputs: ['value' => 'after-transport-failure']),
+    ]));
+    $step = $flow->steps()->sole();
+    $job = DB::table('jobs')->where('queue', 'scarlett')->sole();
+    expect($job->attempts)->toBe(0);
+    $worker = new Process([PHP_BINARY, __DIR__.'/queue-worker.php', 'lookup-failure']);
+    $worker->setTimeout(20);
+    $worker->mustRun();
+    expect(DB::table('jobs')->where('payload', 'like', '%'.$step->id.'%')->exists())->toBeFalse();
+    expect(statesOf($flow->id))->toBe(['recoverable' => 'queued'])->and($step->fresh()->failures)->toBe(0);
+    DB::table('scarlett_deliveries')->where('step_id', $step->id)->update(['sent_at' => now()->subSeconds(config('scarlett.delivery_retry_seconds'))]);
+    app(Engine::class)->resume($flow->id);
+    $healthy = new Process([PHP_BINARY, __DIR__.'/queue-worker.php']);
+    $healthy->setTimeout(20);
+    $healthy->mustRun();
+    expect($flow->fresh()->status)->toBe('completed');
+    expect(app(PayloadCodec::class)->decode($step->fresh()->result))->toBe('after-transport-failure');
+});
+
+
+it('fails timed out transport work without relying on a cache counter', function () {
+    config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql']);
+    $flow = app(Engine::class)->start(new Workflow([
+        new Node('timeout', \Scarlett\Tests\Fixtures\SlowStep::class, inputs: ['seconds' => 3], execution: new \Scarlett\Definition\ExecutionOptions(workerTimeout: 1, leaseSeconds: 5)),
+    ]));
+    $step = $flow->steps()->sole();
+    expect(statesOf($flow->id))->toBe(['timeout' => 'queued']);
+    $worker = new Process([PHP_BINARY, __DIR__.'/queue-worker.php', 'timeout']);
+    $worker->setTimeout(20);
+    try {
+        $worker->run();
+    } catch (\Symfony\Component\Process\Exception\ProcessSignaledException) {
+        expect($worker->getTermSignal())->toBe(SIGKILL);
+    }
+    expect($worker->getOutput())->toContain(\Illuminate\Queue\TimeoutExceededException::class);
+    expect(DB::table('jobs')->where('payload', 'like', '%'.$step->id.'%')->exists())->toBeFalse();
+    expect((string) $step->fresh()->state)->toBe('running')->and($step->fresh()->action_completed)->toBeFalse();
 });

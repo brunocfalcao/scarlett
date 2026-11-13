@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Scarlett\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -15,11 +16,16 @@ class WorkflowRecord extends Model
 
     protected $keyType = 'string';
 
-    protected $fillable = ['id', 'status', 'started_at', 'finished_at', 'archived_at'];
+    protected $fillable = ['id', 'status', 'started_at', 'finished_at', 'archived_at', 'subject_type', 'subject_id', 'metadata'];
 
     protected function casts(): array
     {
-        return ['started_at' => 'immutable_datetime', 'finished_at' => 'immutable_datetime', 'archived_at' => 'immutable_datetime'];
+        return ['metadata' => 'array', 'started_at' => 'immutable_datetime', 'finished_at' => 'immutable_datetime', 'archived_at' => 'immutable_datetime'];
+    }
+
+    public function scopeForSubject(Builder $query, string $type, string $id): Builder
+    {
+        return $query->where('subject_type', $type)->where('subject_id', $id);
     }
 
     public function steps(): HasMany

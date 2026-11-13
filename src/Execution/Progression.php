@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Scarlett\Execution;
 
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Scarlett\Models\StepRecord;
@@ -25,13 +26,14 @@ final class Progression
         if ($workflow->finished_at !== null) {
             return;
         }
+        $steps = $workflow->steps()->orderByDesc('priority')->get()->keyBy('key');
+        $childrenByParent = $steps->groupBy('parent_key');
         do {
             $changed = false;
-            $steps = $workflow->steps()->orderByDesc('priority')->get()->keyBy('key');
             foreach ($steps as $step) {
                 $phase = $step->state::phase();
                 if ($phase === Phase::Children) {
-                    $children = $steps->where('parent_key', $step->key);
+                    $children = $childrenByParent->get($step->key, collect());
                     if ($children->contains(fn ($child): bool => $child->state::activatesRecovery())) {
                         $this->journal->transition($step, Failed::class, 'A child failed.');
                         $changed = true;
@@ -45,8 +47,7 @@ final class Progression
                         continue;
                     }
                     if ($children->every(fn ($child): bool => $child->state::phase() === Phase::Settled)) {
-                        $successful = $children->every(fn ($child): bool => $child->state::satisfiesDependency());
-                        $this->journal->transition($step, $successful ? ($step->completion_state ?? Completed::class) : Failed::class);
+                        $this->journal->conclude($step, $step->completion_state ?? Completed::class);
                         $changed = true;
                     }
 
@@ -96,12 +97,11 @@ final class Progression
                 $changed = true;
             }
         } while ($changed);
-        $this->aggregate($workflow);
+        $this->aggregate($workflow, $steps);
     }
 
-    private function aggregate(WorkflowRecord $workflow): void
+    private function aggregate(WorkflowRecord $workflow, Collection $steps): void
     {
-        $steps = $workflow->steps()->get();
         if ($steps->every(fn ($step): bool => $step->state::phase() === Phase::Settled)) {
             $failed = $steps->contains(fn ($step): bool => $step->state::activatesRecovery());
             // Unused recovery nodes do not make a successful workflow cancelled.
@@ -112,7 +112,11 @@ final class Progression
 
     public function enqueue(StepRecord $step, int $delay = 0): void
     {
-        $step->fill(['attempt' => (string) Str::uuid(), 'available_at' => now()->addSeconds($delay), 'lease_until' => null])->save();
+        $availableAt = now()->addSeconds($delay);
+        if ($step->not_before !== null && $step->not_before->greaterThan($availableAt)) {
+            $availableAt = $step->not_before;
+        }
+        $step->fill(['attempt' => (string) Str::uuid(), 'available_at' => $availableAt, 'lease_until' => null])->save();
         $this->journal->transition($step, Queued::class, $step->error);
         DB::table('scarlett_deliveries')->insert([
             'id' => (string) Str::uuid(), 'step_id' => $step->id, 'attempt' => $step->attempt,

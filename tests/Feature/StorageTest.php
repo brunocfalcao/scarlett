@@ -58,3 +58,35 @@ it('dispatches eligible priority order and keeps queue routing per step', functi
     expect(array_column($jobs, 'queue'))->toBe(['urgent', 'slow']);
     expect(statesOf($flow->id))->toBe(['high' => 'queued', 'later' => 'pending', 'low' => 'queued']);
 });
+
+it('purges by the cutoff instant regardless of its timezone', function (string $timezone) {
+    $this->travelTo(\Illuminate\Support\Carbon::parse('2026-01-01 03:00:00', 'UTC'));
+    $engine = app(Engine::class);
+    $history = app(History::class);
+    $old = $engine->start(new Workflow([new Node('old', EchoStep::class)]));
+    $history->archive($old->id);
+    $this->travel(3)->hours();
+    $new = $engine->start(new Workflow([new Node('new', EchoStep::class)]));
+    $history->archive($new->id);
+    $cutoff = \Illuminate\Support\Carbon::parse('2026-01-01 05:00:00', 'UTC')->setTimezone($timezone);
+    expect($old->fresh()->status)->toBe('completed');
+    expect($history->purge($cutoff))->toBe(1)->and($history->purge($cutoff))->toBe(0);
+    expect($old->fresh())->toBeNull()->and($new->fresh()->status)->toBe('completed');
+})->with(['America/New_York', 'Asia/Tokyo', 'UTC']);
+
+it('keeps unknown archive exceptional and unknown deletion idempotent', function () {
+    $id = (string) \Illuminate\Support\Str::uuid();
+    expect(fn () => app(History::class)->archive($id))->toThrow(ModelNotFoundException::class);
+    expect(app(History::class)->delete($id))->toBeFalse();
+});
+
+it('preserves named date timezones and daylight-saving arithmetic while reading old payloads', function () {
+    $codec = app(PayloadCodec::class);
+    $date = new DateTime('2026-10-01 12:00:00.123456', new DateTimeZone('Europe/Lisbon'));
+    $restored = $codec->decode(json_decode(json_encode($codec->encode($date), JSON_THROW_ON_ERROR), true, flags: JSON_THROW_ON_ERROR));
+    expect($restored)->toBeInstanceOf(DateTimeImmutable::class);
+    expect($restored->getTimezone()->getName())->toBe('Europe/Lisbon');
+    expect($restored->modify('+1 month')->format('Y-m-d H:i:s.u P'))->toBe('2026-11-01 12:00:00.123456 +00:00');
+    $legacy = ['version' => 1, 'value' => ['type' => 'date', 'data' => '2026-10-01T12:00:00.123456+01:00']];
+    expect($codec->decode($legacy)->getTimezone()->getName())->toBe('+01:00');
+});

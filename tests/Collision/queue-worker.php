@@ -13,4 +13,16 @@ $app = Application::create(options: ['extra' => ['providers' => [ScarlettService
 Environment::configure($app);
 config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql',
     'scarlett.payload_mappers' => ['amount-v1' => AmountMapper::class]]);
-exit(Artisan::call('queue:work', ['connection' => 'database', '--queue' => 'scarlett', '--stop-when-empty' => true, '--sleep' => 0, '--tries' => 1]));
+$mode = $argv[1] ?? null;
+$fault = $mode !== null;
+if ($fault) {
+    config(['queue.failed.driver' => 'null']);
+    \Illuminate\Support\Facades\Queue::failing(static function ($event): void {
+        echo $event->exception::class.PHP_EOL;
+    });
+    \Illuminate\Support\Facades\Queue::before(static fn () => app('queue.worker')->setCache(app('cache')->store('null')));
+}
+if ($mode === 'lookup-failure') {
+    \Scarlett\Models\StepRecord::retrieved(static fn () => throw new RuntimeException('Injected worker lookup failure.'));
+}
+exit(Artisan::call('queue:work', ['connection' => 'database', '--queue' => 'scarlett', '--stop-when-empty' => true, '--sleep' => 0, '--tries' => 1, '--max-jobs' => $fault ? 1 : 0]));

@@ -12,6 +12,7 @@ class ScarlettServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/scarlett.php', 'scarlett');
+        $this->app->singleton(\Scarlett\States\StateRegistry::class);
     }
 
     public function boot(): void

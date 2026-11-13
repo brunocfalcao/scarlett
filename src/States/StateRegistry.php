@@ -8,10 +8,22 @@ use InvalidArgumentException;
 
 final class StateRegistry
 {
+    private ?array $stateConfiguration = null;
+
+    private ?array $transitionConfiguration = null;
+
+    private array $cachedClasses = [];
+
+    private array $cachedTransitions = [];
+
     public function classes(): array
     {
+        $configuration = config('scarlett.states', []);
+        if ($this->stateConfiguration === $configuration) {
+            return $this->cachedClasses;
+        }
         $classes = array_merge([Pending::class, Queued::class, Running::class, WaitingForChildren::class,
-            Completed::class, Skipped::class, Failed::class, Stopped::class, Cancelled::class], config('scarlett.states', []));
+            Completed::class, Skipped::class, Failed::class, Stopped::class, Cancelled::class], $configuration);
         $aliases = [];
         foreach ($classes as $class) {
             if (! is_subclass_of($class, StepState::class)) {
@@ -30,11 +42,20 @@ final class StateRegistry
             $aliases[$alias] = $class;
         }
 
+        $this->stateConfiguration = $configuration;
+        $this->cachedClasses = $classes;
+        $this->transitionConfiguration = null;
+
         return $classes;
     }
 
     public function transitions(): array
     {
+        $classes = $this->classes();
+        $configuration = config('scarlett.transitions', []);
+        if ($this->transitionConfiguration === $configuration) {
+            return $this->cachedTransitions;
+        }
         $transitions = [
             [Pending::class, Queued::class], [Pending::class, Skipped::class], [Queued::class, Skipped::class], [Pending::class, Cancelled::class],
             [Queued::class, Running::class], [Queued::class, Cancelled::class],
@@ -45,14 +66,16 @@ final class StateRegistry
                 $transitions[] = [$from, $to];
             }
         }
-        $classes = $this->classes();
-        foreach (config('scarlett.transitions', []) as $transition) {
+        foreach ($configuration as $transition) {
             if (! in_array($transition[0], $classes, true) || ! in_array($transition[1], $classes, true)
                 || $transition[0]::phase() === Phase::Settled) {
                 throw new InvalidArgumentException('Custom transitions require registered states and cannot reopen settled work.');
             }
             $transitions[] = $transition;
         }
+
+        $this->transitionConfiguration = $configuration;
+        $this->cachedTransitions = $transitions;
 
         return $transitions;
     }

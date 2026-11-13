@@ -6,22 +6,41 @@ namespace Scarlett\Definition;
 
 use InvalidArgumentException;
 use ReflectionClass;
+use Scarlett\Execution\Invoker;
 use Scarlett\Step;
 
 final readonly class Workflow
 {
     /** @param list<Node> $nodes */
-    public function __construct(public array $nodes) {}
+    public function __construct(
+        public array $nodes,
+        public ?string $subjectType = null,
+        public ?string $subjectId = null,
+        public array $metadata = [],
+    ) {}
 
     public function validate(): void
     {
         if ($this->nodes === []) {
             throw new InvalidArgumentException('A workflow needs at least one step.');
         }
+        if (($this->subjectType === null) !== ($this->subjectId === null)) {
+            throw new InvalidArgumentException('A workflow subject requires both its type and its identifier.');
+        }
+        foreach ([$this->subjectType, $this->subjectId] as $value) {
+            if ($value !== null && $value === '') {
+                throw new InvalidArgumentException('Workflow subject values must not be empty.');
+            }
+        }
+        json_encode($this->metadata, JSON_THROW_ON_ERROR);
+        $this->validateMetadata($this->metadata);
         $indexed = [];
         foreach ($this->nodes as $node) {
             if (! $node instanceof Node || $node->key === '') {
                 throw new InvalidArgumentException('Each step needs a non-empty identity.');
+            }
+            if (mb_strlen($node->key, 'UTF-8') > Node::MAX_KEY_LENGTH) {
+                throw new InvalidArgumentException('Step identity exceeds the storage length limit.');
             }
             if (isset($indexed[$node->key])) {
                 throw new InvalidArgumentException("Duplicate step identity: {$node->key}");
@@ -32,6 +51,7 @@ final readonly class Workflow
             if ($node->parent !== null && $node->rescues !== null) {
                 throw new InvalidArgumentException('A recovery root cannot also have a parent.');
             }
+            ($node->execution ?? new ExecutionOptions)->snapshot();
             $this->validateSignature($node);
             $indexed[$node->key] = $node;
         }
@@ -51,6 +71,17 @@ final readonly class Workflow
         }
     }
 
+    private function validateMetadata(array $values): void
+    {
+        foreach ($values as $value) {
+            if (is_array($value)) {
+                $this->validateMetadata($value);
+            } elseif ($value !== null && ! is_scalar($value)) {
+                throw new InvalidArgumentException('Workflow metadata accepts JSON values only.');
+            }
+        }
+    }
+
     private function validateSignature(Node $node): void
     {
         $reflection = new ReflectionClass($node->step);
@@ -66,8 +97,18 @@ final readonly class Workflow
                 if ($parameter->isPassedByReference()) {
                     throw new InvalidArgumentException("Input $name cannot be passed by reference.");
                 }
+                if (Invoker::isContext($parameter)) {
+                    if (array_key_exists($name, $node->inputs) || $parameter->isVariadic()) {
+                        throw new InvalidArgumentException('Execution context is supplied by the engine and cannot be bound or variadic.');
+                    }
+
+                    continue;
+                }
                 if (! array_key_exists($name, $node->inputs) && ! $parameter->isOptional()) {
                     throw new InvalidArgumentException("Missing input $name for {$node->key}.");
+                }
+                if (array_key_exists($name, $node->inputs)) {
+                    Invoker::validateLiteral($parameter, $node->inputs[$name]);
                 }
             }
         }

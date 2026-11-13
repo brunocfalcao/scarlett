@@ -25,3 +25,31 @@ it('rejects a missing required binding before persisting the workflow', function
 it('rejects misspelled bindings instead of silently ignoring them', function () {
     (new Workflow([new Node('echo', EchoStep::class, inputs: ['valuue' => 1])]))->validate();
 })->throws(InvalidArgumentException::class, 'Unknown input');
+
+it('validates the key storage boundary before admitting work', function () {
+    (new Workflow([new Node(str_repeat('é', 255), EchoStep::class)]))->validate();
+    expect(fn () => (new Workflow([new Node(str_repeat('é', 256), EchoStep::class)]))->validate())
+        ->toThrow(InvalidArgumentException::class, 'identity');
+});
+
+it('rejects incompatible literal constructor types before constructing any step', function () {
+    \Scarlett\Tests\Fixtures\ControlledStep::$constructed = [];
+    expect(fn () => app(Engine::class)->start(new Workflow([
+        new Node('invalid', \Scarlett\Tests\Fixtures\ControlledStep::class, inputs: ['name' => 123]),
+    ])))->toThrow(InvalidArgumentException::class, 'name');
+    expect(\Scarlett\Tests\Fixtures\ControlledStep::$constructed)->toBe([]);
+});
+
+it('preserves union nullable boolean and variadic literal types through execution', function (int|float $number, ?string $label, bool $enabled, array $increments) {
+    $flow = app(Engine::class)->start(new Workflow([
+        new Node('types', \Scarlett\Tests\Fixtures\LiteralTypesStep::class, inputs: compact('number', 'label', 'enabled', 'increments')),
+    ]));
+    expect($flow->fresh()->status)->toBe('completed');
+    expect(app(\Scarlett\Inputs\PayloadCodec::class)->decode($flow->steps()->sole()->result))->toBe([$number, $label, $enabled, $increments]);
+})->with([[0, '', false, []], [1.0, null, true, [0, 2]]]);
+
+it('rejects incompatible variadic literals before admission', function () {
+    expect(fn () => app(Engine::class)->start(new Workflow([
+        new Node('types', \Scarlett\Tests\Fixtures\LiteralTypesStep::class, inputs: ['number' => 1, 'increments' => ['2']]),
+    ])))->toThrow(InvalidArgumentException::class, 'increments');
+});

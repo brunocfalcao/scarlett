@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace Scarlett;
 
-use Illuminate\Support\Facades\DB;
+use Scarlett\Execution\Delivery;
 use Scarlett\Models\StepRecord;
 use Scarlett\States\Phase;
+use Scarlett\States\StateRegistry;
 
 final class Recovery
 {
@@ -35,7 +36,12 @@ final class Recovery
 
     private function candidates(?string $workflowId): iterable
     {
-        return StepRecord::whereHas('workflow', fn ($query) => $query->whereNull('finished_at')->whereNotNull('started_at'))
+        $states = collect(app(StateRegistry::class)->classes())
+            ->filter(fn (string $class): bool => in_array($class::phase(), [Phase::Queued, Phase::Running], true))
+            ->map(fn (string $class): string => $class::getMorphClass())->all();
+
+        return StepRecord::whereIn('state', $states)
+            ->whereHas('workflow', fn ($query) => $query->where('status', 'running'))
             ->when($workflowId !== null, fn ($query) => $query->where('workflow_id', $workflowId))->cursor();
     }
 
@@ -48,8 +54,6 @@ final class Recovery
             return false;
         }
 
-        return DB::table('scarlett_deliveries')->where('step_id', $step->id)->where('attempt', $step->attempt)
-            ->where(fn ($query) => $query->whereNull('publishing_until')->orWhere('publishing_until', '<=', now()))
-            ->where(fn ($query) => $query->whereNull('sent_at')->orWhere('sent_at', '<=', now()->subSeconds((int) config('scarlett.delivery_retry_seconds'))))->exists();
+        return app(Delivery::class)->replayable($step)->exists();
     }
 }
