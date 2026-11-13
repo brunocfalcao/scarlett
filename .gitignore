@@ -1,0 +1,7 @@
+/vendor/
+/.phpunit.cache/
+/.temp/
+/.env
+/.phpunit.result.cache
+
+/.pint.cache

@@ -1,0 +1,46 @@
+{
+    "name": "brunocfalcao/scarlett",
+    "description": "Outcome-driven Laravel workflows with durable progression and late-bound steps",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.4",
+        "illuminate/support": "^13.0",
+        "illuminate/database": "^13.0",
+        "illuminate/queue": "^13.0",
+        "illuminate/console": "^13.0",
+        "spatie/laravel-model-states": "^2.14"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^11.0",
+        "pestphp/pest": "^5.0",
+        "laravel/pint": "^1.27"
+    },
+    "autoload": {
+        "psr-4": {
+            "Scarlett\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Scarlett\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Scarlett\\ScarlettServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "scripts": {
+        "test": "./run-pest-tia.sh --filtered",
+        "test:full": "./run-pest-tia.sh --fresh",
+        "format": "pint"
+    }
+}

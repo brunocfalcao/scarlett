@@ -1,0 +1,67 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Scarlett\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Scarlett\States\StepState;
+use Spatie\ModelStates\HasStates;
+
+class StepRecord extends Model
+{
+    use HasStates;
+
+    protected $table = 'scarlett_steps';
+
+    public $incrementing = false;
+
+    protected $keyType = 'string';
+
+    protected $fillable = [
+        'id',
+        'workflow_id',
+        'key',
+        'class',
+        'state',
+        'parent_key',
+        'rescues_key',
+        'dependencies',
+        'inputs',
+        'result',
+        'has_result',
+        'completion_state',
+        'priority',
+        'queue',
+        'connection',
+        'attempt',
+        'failures',
+        'verifications',
+        'action_completed',
+        'available_at',
+        'lease_until',
+        'error',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'state' => StepState::class,
+            'dependencies' => 'array',
+            'inputs' => 'array',
+            'result' => 'array',
+            'has_result' => 'boolean',
+            'action_completed' => 'boolean',
+            'available_at' => 'immutable_datetime',
+            'lease_until' => 'immutable_datetime',
+            'failures' => 'integer',
+            'verifications' => 'integer',
+        ];
+    }
+
+    public function workflow(): BelongsTo
+    {
+        return $this->belongsTo(WorkflowRecord::class, 'workflow_id');
+    }
+}
