@@ -2,10 +2,14 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
+use Scarlett\Tests\Fixtures\EchoStep;
 
 it('upgrades an existing mysql installation and leaves repeated migrations and workflow data untouched', function () {
     $flow = app(Engine::class)->start(new Workflow([controlled('existing')]));
@@ -32,9 +36,9 @@ it('keeps case accent and trailing-space keys distinct on mysql', function () {
 });
 
 it('stores future scheduled dates beyond the mysql timestamp range', function () {
-    $when = \Illuminate\Support\Carbon::parse('2040-01-01 12:00:00', config('app.timezone'));
+    $when = Carbon::parse('2040-01-01 12:00:00', config('app.timezone'));
     $flow = app(Engine::class)->start(new Workflow([
-        new \Scarlett\Definition\Node('future', \Scarlett\Tests\Fixtures\EchoStep::class, notBefore: $when),
+        new Node('future', EchoStep::class, notBefore: $when),
     ]));
     $step = $flow->steps()->sole();
     expect($step->not_before->toDateTimeString())->toBe('2040-01-01 12:00:00');
@@ -47,7 +51,7 @@ it('stores future scheduled dates beyond the mysql timestamp range', function ()
 it('refuses narrowing rollbacks without changing incompatible records', function () {
     $flow = app(Engine::class)->start(new Workflow([controlled('Case'), controlled('case')]));
     $keysMigration = require __DIR__.'/../../database/migrations/2026_11_13_000003_preserve_exact_step_keys.php';
-    expect(fn () => $keysMigration->down())->toThrow(\Illuminate\Database\QueryException::class);
+    expect(fn () => $keysMigration->down())->toThrow(QueryException::class);
     expect($flow->steps()->pluck('key')->all())->toEqualCanonicalizing(['Case', 'case']);
     $step = $flow->steps()->where('key', 'Case')->sole();
     $step->update(['not_before' => '2040-01-01 00:00:00']);

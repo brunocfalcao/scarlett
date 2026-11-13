@@ -4,7 +4,10 @@ declare(strict_types=1);
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
+use Scarlett\Inputs\PayloadCodec;
+use Scarlett\Tests\Fixtures\ControlledStep;
 use Scarlett\Tests\Fixtures\EchoStep;
+use Scarlett\Tests\Fixtures\LiteralTypesStep;
 use Scarlett\Tests\Fixtures\TypedStep;
 
 it('rejects duplicate identities before any work can be registered', function () {
@@ -33,23 +36,23 @@ it('validates the key storage boundary before admitting work', function () {
 });
 
 it('rejects incompatible literal constructor types before constructing any step', function () {
-    \Scarlett\Tests\Fixtures\ControlledStep::$constructed = [];
+    ControlledStep::$constructed = [];
     expect(fn () => app(Engine::class)->start(new Workflow([
-        new Node('invalid', \Scarlett\Tests\Fixtures\ControlledStep::class, inputs: ['name' => 123]),
+        new Node('invalid', ControlledStep::class, inputs: ['name' => 123]),
     ])))->toThrow(InvalidArgumentException::class, 'name');
-    expect(\Scarlett\Tests\Fixtures\ControlledStep::$constructed)->toBe([]);
+    expect(ControlledStep::$constructed)->toBe([]);
 });
 
 it('preserves union nullable boolean and variadic literal types through execution', function (int|float $number, ?string $label, bool $enabled, array $increments) {
     $flow = app(Engine::class)->start(new Workflow([
-        new Node('types', \Scarlett\Tests\Fixtures\LiteralTypesStep::class, inputs: compact('number', 'label', 'enabled', 'increments')),
+        new Node('types', LiteralTypesStep::class, inputs: compact('number', 'label', 'enabled', 'increments')),
     ]));
     expect($flow->fresh()->status)->toBe('completed');
-    expect(app(\Scarlett\Inputs\PayloadCodec::class)->decode($flow->steps()->sole()->result))->toBe([$number, $label, $enabled, $increments]);
+    expect(app(PayloadCodec::class)->decode($flow->steps()->sole()->result))->toBe([$number, $label, $enabled, $increments]);
 })->with([[0, '', false, []], [1.0, null, true, [0, 2]]]);
 
 it('rejects incompatible variadic literals before admission', function () {
     expect(fn () => app(Engine::class)->start(new Workflow([
-        new Node('types', \Scarlett\Tests\Fixtures\LiteralTypesStep::class, inputs: ['number' => 1, 'increments' => ['2']]),
+        new Node('types', LiteralTypesStep::class, inputs: ['number' => 1, 'increments' => ['2']]),
     ])))->toThrow(InvalidArgumentException::class, 'increments');
 });

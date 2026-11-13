@@ -6,13 +6,14 @@ namespace Scarlett;
 
 use Illuminate\Support\ServiceProvider;
 use Scarlett\Commands\RecoverCommand;
+use Scarlett\States\StateRegistry;
 
 class ScarlettServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/scarlett.php', 'scarlett');
-        $this->app->singleton(\Scarlett\States\StateRegistry::class);
+        $this->app->singleton(StateRegistry::class);
     }
 
     public function boot(): void

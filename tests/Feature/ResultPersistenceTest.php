@@ -3,12 +3,17 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Queue;
+use Scarlett\Contracts\PayloadMapper;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\Models\StepRecord;
+use Scarlett\Tests\Fixtures\Amount;
+use Scarlett\Tests\Fixtures\AmountMapper;
 use Scarlett\Tests\Fixtures\ControlledStep;
+use Scarlett\Tests\Fixtures\DateResultStep;
 use Scarlett\Tests\Fixtures\UnstorableResultStep;
+use Scarlett\Tests\Fixtures\VerifiedAmountStep;
 
 beforeEach(function () {
     Queue::fake();
@@ -45,9 +50,9 @@ it('fails a result write error without classifying it as an action failure', fun
 
 it('verifies the same restored result type on first execution and retries', function () {
     $this->freezeSecond();
-    \Scarlett\Tests\Fixtures\DateResultStep::$verifiedTypes = [];
+    DateResultStep::$verifiedTypes = [];
     $flow = app(Engine::class)->start(new Workflow([
-        new Node('date', \Scarlett\Tests\Fixtures\DateResultStep::class, inputs: ['name' => 'date']),
+        new Node('date', DateResultStep::class, inputs: ['name' => 'date']),
     ]));
     runStep($flow->id, 'date');
     expect(statesOf($flow->id))->toBe(['date' => 'queued']);
@@ -55,23 +60,35 @@ it('verifies the same restored result type on first execution and retries', func
     runStep($flow->id, 'date');
     expect(statesOf($flow->id))->toBe(['date' => 'completed']);
     expect(ControlledStep::$actions)->toBe(['date' => 1]);
-    expect(\Scarlett\Tests\Fixtures\DateResultStep::$verifiedTypes)->toBe([DateTimeImmutable::class, DateTimeImmutable::class]);
+    expect(DateResultStep::$verifiedTypes)->toBe([DateTimeImmutable::class, DateTimeImmutable::class]);
 });
 
 it('does not verify after ownership is revoked while restoring the saved result', function () {
-    \Scarlett\Tests\Fixtures\VerifiedAmountStep::$verifications = 0;
-    config(['scarlett.payload_mappers' => ['amount' => \Scarlett\Tests\Fixtures\AmountMapper::class]]);
-    $flow = app(Engine::class)->start(new Workflow([new Node('owned', \Scarlett\Tests\Fixtures\VerifiedAmountStep::class)]));
-    app()->instance(\Scarlett\Tests\Fixtures\AmountMapper::class, new class($flow->id) implements \Scarlett\Contracts\PayloadMapper {
+    VerifiedAmountStep::$verifications = 0;
+    config(['scarlett.payload_mappers' => ['amount' => AmountMapper::class]]);
+    $flow = app(Engine::class)->start(new Workflow([new Node('owned', VerifiedAmountStep::class)]));
+    app()->instance(AmountMapper::class, new class($flow->id) implements PayloadMapper
+    {
         public function __construct(private string $workflow) {}
-        public function supports(object $value): bool { return $value instanceof \Scarlett\Tests\Fixtures\Amount; }
-        public function encode(object $value): mixed { return $value->minorUnits; }
-        public function decode(mixed $value): object {
+
+        public function supports(object $value): bool
+        {
+            return $value instanceof Amount;
+        }
+
+        public function encode(object $value): mixed
+        {
+            return $value->minorUnits;
+        }
+
+        public function decode(mixed $value): object
+        {
             app(Engine::class)->cancelWorkflow($this->workflow);
-            return new \Scarlett\Tests\Fixtures\Amount($value);
+
+            return new Amount($value);
         }
     });
     runStep($flow->id, 'owned');
     expect($flow->fresh()->status)->toBe('cancelled');
-    expect(\Scarlett\Tests\Fixtures\VerifiedAmountStep::$verifications)->toBe(0);
+    expect(VerifiedAmountStep::$verifications)->toBe(0);
 });

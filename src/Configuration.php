@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Scarlett;
 
 use InvalidArgumentException;
+use Scarlett\Contracts\PayloadMapper;
+use Scarlett\Definition\ExecutionOptions;
+use Scarlett\Policies\ExceptionHandler;
 use Scarlett\States\StateRegistry;
 
 final class Configuration
@@ -16,10 +19,10 @@ final class Configuration
                 throw new InvalidArgumentException("scarlett.$name must be a positive integer.");
             }
         }
-        (new \Scarlett\Definition\ExecutionOptions)->snapshot();
+        (new ExecutionOptions)->snapshot();
         app(StateRegistry::class)->transitions();
         $handler = config('scarlett.input_exception_handler');
-        if (! is_string($handler) || ! is_subclass_of($handler, \Scarlett\Policies\ExceptionHandler::class)) {
+        if (! is_string($handler) || ! is_subclass_of($handler, ExceptionHandler::class)) {
             throw new InvalidArgumentException('scarlett.input_exception_handler must extend ExceptionHandler.');
         }
         $terminalExceptions = config('scarlett.input_terminal_exceptions');
@@ -32,7 +35,7 @@ final class Configuration
             }
         }
         foreach (config('scarlett.payload_mappers', []) as $mapper) {
-            if (! is_string($mapper) || ! is_subclass_of($mapper, \Scarlett\Contracts\PayloadMapper::class)) {
+            if (! is_string($mapper) || ! is_subclass_of($mapper, PayloadMapper::class)) {
                 throw new InvalidArgumentException('scarlett.payload_mappers entries must implement PayloadMapper.');
             }
         }

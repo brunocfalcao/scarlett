@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\DB;
 use Orchestra\Testbench\Foundation\Application;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
@@ -35,7 +36,7 @@ $result = match ($arguments['operation']) {
     })(),
     'claim' => $engine->claim($arguments['step'], $arguments['attempt']) !== null,
     'revoke' => $engine->cancelWorkflow($arguments['workflow']),
-    'write' => $engine->whileCurrent($arguments['step'], $arguments['attempt'], fn () => \Illuminate\Support\Facades\DB::table('consumer_records')->where('id', $arguments['record'])->increment('writes')),
+    'write' => $engine->whileCurrent($arguments['step'], $arguments['attempt'], fn () => DB::table('consumer_records')->where('id', $arguments['record'])->increment('writes')),
     'cancel' => $engine->cancel($arguments['step']),
     'recover' => $engine->recover($arguments['step']),
     'finish' => $engine->finish($arguments['step'], $arguments['attempt']),

@@ -6,8 +6,8 @@ namespace Scarlett\Execution;
 
 use Illuminate\Support\Facades\DB;
 use Scarlett\Models\StepRecord;
-use Scarlett\States\Phase;
 use Scarlett\States\Failed;
+use Scarlett\States\Phase;
 use Spatie\ModelStates\Exceptions\TransitionNotAllowed;
 use Spatie\ModelStates\Exceptions\TransitionNotFound;
 

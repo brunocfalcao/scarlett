@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
@@ -60,7 +62,7 @@ it('dispatches eligible priority order and keeps queue routing per step', functi
 });
 
 it('purges by the cutoff instant regardless of its timezone', function (string $timezone) {
-    $this->travelTo(\Illuminate\Support\Carbon::parse('2026-01-01 03:00:00', 'UTC'));
+    $this->travelTo(Carbon::parse('2026-01-01 03:00:00', 'UTC'));
     $engine = app(Engine::class);
     $history = app(History::class);
     $old = $engine->start(new Workflow([new Node('old', EchoStep::class)]));
@@ -68,14 +70,14 @@ it('purges by the cutoff instant regardless of its timezone', function (string $
     $this->travel(3)->hours();
     $new = $engine->start(new Workflow([new Node('new', EchoStep::class)]));
     $history->archive($new->id);
-    $cutoff = \Illuminate\Support\Carbon::parse('2026-01-01 05:00:00', 'UTC')->setTimezone($timezone);
+    $cutoff = Carbon::parse('2026-01-01 05:00:00', 'UTC')->setTimezone($timezone);
     expect($old->fresh()->status)->toBe('completed');
     expect($history->purge($cutoff))->toBe(1)->and($history->purge($cutoff))->toBe(0);
     expect($old->fresh())->toBeNull()->and($new->fresh()->status)->toBe('completed');
 })->with(['America/New_York', 'Asia/Tokyo', 'UTC']);
 
 it('keeps unknown archive exceptional and unknown deletion idempotent', function () {
-    $id = (string) \Illuminate\Support\Str::uuid();
+    $id = (string) Str::uuid();
     expect(fn () => app(History::class)->archive($id))->toThrow(ModelNotFoundException::class);
     expect(app(History::class)->delete($id))->toBeFalse();
 });

@@ -2,11 +2,15 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\Models\WorkflowRecord;
 use Scarlett\States\Completed;
+use Scarlett\Tests\Collision\Environment;
 use Scarlett\Tests\Collision\Workers;
 
 it('admits exactly one of two concurrent workers for the same attempt', function () {
@@ -66,12 +70,12 @@ it('serializes admission against cooldown without partially starting a held work
 });
 
 it('serializes consumer database writes with workflow revocation and rejects every later write', function () {
-    \Illuminate\Support\Facades\Schema::create('consumer_records', function (\Illuminate\Database\Schema\Blueprint $table): void {
+    Schema::create('consumer_records', function (Blueprint $table): void {
         $table->uuid('id')->primary();
         $table->integer('writes')->default(0);
     });
     $flow = app(Engine::class)->start(new Workflow([controlled('a')]));
-    $record = (string) \Illuminate\Support\Str::uuid();
+    $record = (string) Str::uuid();
     DB::table('consumer_records')->insert(['id' => $record, 'writes' => 0]);
     $step = $flow->steps()->sole();
     app(Engine::class)->claim($step->id, $step->attempt);
@@ -86,13 +90,13 @@ it('serializes consumer database writes with workflow revocation and rejects eve
 });
 
 it('holds a shared admission lock while creating a workflow', function () {
-    \Illuminate\Support\Facades\DB::beginTransaction();
+    DB::beginTransaction();
     try {
-        $flow = app(\Scarlett\Engine::class)->start(new \Scarlett\Definition\Workflow([controlled('shared-gate')]));
-        $locks = \Illuminate\Support\Facades\DB::select("SELECT lock_mode FROM performance_schema.data_locks WHERE object_schema = ? AND object_name = ? AND lock_type = ? AND lock_data = ? LIMIT 10", [\Scarlett\Tests\Collision\Environment::DATABASE, 'scarlett_control', 'RECORD', "'admission'"]);
+        $flow = app(Engine::class)->start(new Workflow([controlled('shared-gate')]));
+        $locks = DB::select('SELECT lock_mode FROM performance_schema.data_locks WHERE object_schema = ? AND object_name = ? AND lock_type = ? AND lock_data = ? LIMIT 10', [Environment::DATABASE, 'scarlett_control', 'RECORD', "'admission'"]);
         expect(array_column($locks, 'lock_mode'))->toBe(['S,REC_NOT_GAP']);
         expect($flow->status)->toBe('running');
     } finally {
-        \Illuminate\Support\Facades\DB::rollBack();
+        DB::rollBack();
     }
 });

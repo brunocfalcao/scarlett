@@ -3,11 +3,14 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Queue;
+use Scarlett\Definition\ExecutionOptions;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\Inputs\FromResult;
+use Scarlett\Inputs\PayloadCodec;
 use Scarlett\Tests\Fixtures\ControlledStep;
+use Scarlett\Tests\Fixtures\EchoStep;
 
 beforeEach(function () {
     ControlledStep::$actions = [];
@@ -94,13 +97,13 @@ it('persists progression failure reasons for recovery consumers', function () {
 it('binds results from a zero-valued parent or rescue owner key', function (string $key, bool $rescue) {
     Queue::fake();
     $flow = app(Engine::class)->start(new Workflow([
-        new \Scarlett\Definition\Node($key, ControlledStep::class, inputs: ['name' => 'owner', 'mode' => $rescue ? 'verify' : 'success', 'value' => 42], execution: new \Scarlett\Definition\ExecutionOptions(verificationAttempts: 1)),
-        new \Scarlett\Definition\Node('consumer', \Scarlett\Tests\Fixtures\EchoStep::class, inputs: ['value' => new \Scarlett\Inputs\FromResult($key)], parent: $rescue ? null : $key, rescues: $rescue ? $key : null),
+        new Node($key, ControlledStep::class, inputs: ['name' => 'owner', 'mode' => $rescue ? 'verify' : 'success', 'value' => 42], execution: new ExecutionOptions(verificationAttempts: 1)),
+        new Node('consumer', EchoStep::class, inputs: ['value' => new FromResult($key)], parent: $rescue ? null : $key, rescues: $rescue ? $key : null),
     ]));
     expect((string) $flow->steps()->where('key', 'consumer')->sole()->state)->toBe('pending');
     runStep($flow->id, $key);
     expect((string) $flow->steps()->where('key', 'consumer')->sole()->state)->toBe('queued');
     runStep($flow->id, 'consumer');
-    expect(app(\Scarlett\Inputs\PayloadCodec::class)->decode($flow->steps()->where('key', 'consumer')->sole()->result))->toBe(42);
+    expect(app(PayloadCodec::class)->decode($flow->steps()->where('key', 'consumer')->sole()->result))->toBe(42);
     expect($flow->fresh()->status)->toBe($rescue ? 'failed' : 'completed');
 })->with([['0', false], ['0', true], ['owner', false], ['owner', true]]);

@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use Illuminate\Contracts\Container\BindingResolutionException;
+use Illuminate\Database\RecordsNotFoundException;
+use Scarlett\Policies\InputExceptionHandler;
 use Scarlett\Policies\RetryPolicy;
 
 return [
@@ -17,11 +20,11 @@ return [
     'retry' => ['attempts' => 3, 'backoff_seconds' => [5, 30, 120]],
     'verification' => ['attempts' => 3, 'backoff_seconds' => [5, 30, 120]],
     'retry_policy' => RetryPolicy::class,
-    'input_exception_handler' => \Scarlett\Policies\InputExceptionHandler::class,
+    'input_exception_handler' => InputExceptionHandler::class,
     'input_terminal_exceptions' => [
         InvalidArgumentException::class,
-        \Illuminate\Database\RecordsNotFoundException::class,
-        \Illuminate\Contracts\Container\BindingResolutionException::class,
+        RecordsNotFoundException::class,
+        BindingResolutionException::class,
         Error::class,
     ],
     'states' => [],

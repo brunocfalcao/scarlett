@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Queue\TimeoutExceededException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Scarlett\Definition\ExecutionOptions;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
@@ -15,7 +17,9 @@ use Scarlett\Inputs\Service;
 use Scarlett\Tests\Fixtures\Amount;
 use Scarlett\Tests\Fixtures\AmountMapper;
 use Scarlett\Tests\Fixtures\EchoStep;
+use Scarlett\Tests\Fixtures\SlowStep;
 use Scarlett\Tests\Fixtures\TypedStep;
+use Symfony\Component\Process\Exception\ProcessSignaledException;
 use Symfony\Component\Process\Process;
 
 beforeEach(function () {
@@ -50,7 +54,7 @@ it('round trips a mapped result through a real database queue and independent wo
 it('keeps delayed jobs in the real queue until due and preserves primitive timeout routing', function () {
     config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql']);
     $flow = app(Engine::class)->start(new Workflow([
-        new Node('delayed', EchoStep::class, inputs: ['value' => 'due-result'], notBefore: now()->addHour(), execution: new \Scarlett\Definition\ExecutionOptions(workerTimeout: 900, leaseSeconds: 1000)),
+        new Node('delayed', EchoStep::class, inputs: ['value' => 'due-result'], notBefore: now()->addHour(), execution: new ExecutionOptions(workerTimeout: 900, leaseSeconds: 1000)),
     ]));
     $step = $flow->steps()->sole();
     $job = DB::table('jobs')->where('queue', 'scarlett')->sole();
@@ -91,7 +95,6 @@ it('releases an early delivery and executes its later transport attempt without 
     expect($step->fresh()->failures)->toBe(0);
 });
 
-
 it('fails unexpected transport errors without a cache and retains recoverable engine intent', function () {
     config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql']);
     $flow = app(Engine::class)->start(new Workflow([
@@ -114,11 +117,10 @@ it('fails unexpected transport errors without a cache and retains recoverable en
     expect(app(PayloadCodec::class)->decode($step->fresh()->result))->toBe('after-transport-failure');
 });
 
-
 it('fails timed out transport work without relying on a cache counter', function () {
     config(['queue.default' => 'database', 'queue.connections.database.connection' => 'mysql']);
     $flow = app(Engine::class)->start(new Workflow([
-        new Node('timeout', \Scarlett\Tests\Fixtures\SlowStep::class, inputs: ['seconds' => 3], execution: new \Scarlett\Definition\ExecutionOptions(workerTimeout: 1, leaseSeconds: 5)),
+        new Node('timeout', SlowStep::class, inputs: ['seconds' => 3], execution: new ExecutionOptions(workerTimeout: 1, leaseSeconds: 5)),
     ]));
     $step = $flow->steps()->sole();
     expect(statesOf($flow->id))->toBe(['timeout' => 'queued']);
@@ -126,10 +128,10 @@ it('fails timed out transport work without relying on a cache counter', function
     $worker->setTimeout(20);
     try {
         $worker->run();
-    } catch (\Symfony\Component\Process\Exception\ProcessSignaledException) {
+    } catch (ProcessSignaledException) {
         expect($worker->getTermSignal())->toBe(SIGKILL);
     }
-    expect($worker->getOutput())->toContain(\Illuminate\Queue\TimeoutExceededException::class);
+    expect($worker->getOutput())->toContain(TimeoutExceededException::class);
     expect(DB::table('jobs')->where('payload', 'like', '%'.$step->id.'%')->exists())->toBeFalse();
     expect((string) $step->fresh()->state)->toBe('running')->and($step->fresh()->action_completed)->toBeFalse();
 });

@@ -7,12 +7,12 @@ namespace Scarlett\Execution;
 use InvalidArgumentException;
 use ReflectionClass;
 use ReflectionFunctionAbstract;
+use ReflectionIntersectionType;
 use ReflectionMethod;
 use ReflectionNamedType;
 use ReflectionParameter;
 use ReflectionType;
 use ReflectionUnionType;
-use ReflectionIntersectionType;
 use Scarlett\Step;
 
 final class Invoker

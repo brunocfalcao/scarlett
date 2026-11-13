@@ -13,8 +13,8 @@ use Scarlett\States\Phase;
 
 final class ExecuteStep implements ShouldQueue
 {
-    use Queueable;
     use InteractsWithQueue;
+    use Queueable;
 
     // Early transport releases do not consume Scarlett's business retry budget.
     public int $tries = 0;

@@ -29,6 +29,7 @@ it('recovers temporary input failures after the configured wait without running 
         if (++$calls === 1) {
             throw new RuntimeException('Temporary service outage.');
         }
+
         return 42;
     });
     $flow = app(Engine::class)->start(new Workflow([
@@ -98,6 +99,7 @@ it('uses the verification budget for preparation failures after an action was sa
         if (++$calls > 1) {
             throw new RuntimeException('Temporary service outage.');
         }
+
         return 42;
     });
     $flow = app(Engine::class)->start(new Workflow([
@@ -135,7 +137,8 @@ it('retries temporary constructor failures without constructing successors early
 });
 
 it('retries mapped input restoration through the same budget', function () {
-    $mapper = new class implements PayloadMapper {
+    $mapper = new class implements PayloadMapper
+    {
         public int $loads = 0;
 
         public function supports(object $value): bool
@@ -153,6 +156,7 @@ it('retries mapped input restoration through the same budget', function () {
             if (++$this->loads === 1) {
                 throw new RuntimeException('Temporary mapper failure.');
             }
+
             return new Amount($value);
         }
     };

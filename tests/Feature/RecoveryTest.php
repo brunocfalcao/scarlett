@@ -11,6 +11,7 @@ use Scarlett\Engine;
 use Scarlett\Execution\Decision;
 use Scarlett\Execution\Delivery;
 use Scarlett\Inputs\PayloadCodec;
+use Scarlett\Models\StepRecord;
 use Scarlett\Recovery;
 use Scarlett\States\Completed;
 use Scarlett\Tests\Fixtures\ControlledStep;
@@ -97,7 +98,7 @@ it('does not publish the same delivery twice during overlapping flushes', functi
 
 it('returns committed work when the publication lookup fails', function () {
     $fail = true;
-    \Scarlett\Models\StepRecord::retrieved(function () use (&$fail): void {
+    StepRecord::retrieved(function () use (&$fail): void {
         if ($fail && DB::transactionLevel() === 0) {
             throw new RuntimeException('Publication lookup unavailable.');
         }

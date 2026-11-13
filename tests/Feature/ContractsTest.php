@@ -9,11 +9,14 @@ use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\Inputs\PayloadCodec;
 use Scarlett\States\Running;
+use Scarlett\States\Skipped;
 use Scarlett\States\WaitingForChildren;
 use Scarlett\Tests\Fixtures\AcceptingStep;
 use Scarlett\Tests\Fixtures\AmountMapper;
 use Scarlett\Tests\Fixtures\Approved;
 use Scarlett\Tests\Fixtures\ApproveStep;
+use Scarlett\Tests\Fixtures\CompletionStep;
+use Scarlett\Tests\Fixtures\GuardedApproval;
 
 it('keeps accepted exceptions behind mandatory verification and preserves zero results', function () {
     Queue::fake();
@@ -79,7 +82,7 @@ it('attributes an unreachable completion state to the choosing step', function (
 it('rejects result-producing completion with skip semantics', function () {
     Queue::fake();
     $flow = app(Engine::class)->start(new Workflow([
-        new Node('invalid', \Scarlett\Tests\Fixtures\CompletionStep::class, inputs: ['state' => \Scarlett\States\Skipped::class, 'value' => 'kept']),
+        new Node('invalid', CompletionStep::class, inputs: ['state' => Skipped::class, 'value' => 'kept']),
         controlled('child', parent: 'invalid'), controlled('skip', 'skip'),
     ]));
     runStep($flow->id, 'invalid');
@@ -96,11 +99,11 @@ it('rejects mapper configuration mistakes before admitting scalar-only workflows
 
 it('attributes denied completion guards to their owner without rolling back children', function (bool $parent, bool $allowed) {
     Queue::fake();
-    \Scarlett\Tests\Fixtures\GuardedApproval::$allowed = $allowed;
+    GuardedApproval::$allowed = $allowed;
     config(['scarlett.payload_mappers' => ['amount' => AmountMapper::class], 'scarlett.states' => [Approved::class],
         'scarlett.transitions' => [
-            [Running::class, Approved::class, \Scarlett\Tests\Fixtures\GuardedApproval::class],
-            [WaitingForChildren::class, Approved::class, \Scarlett\Tests\Fixtures\GuardedApproval::class],
+            [Running::class, Approved::class, GuardedApproval::class],
+            [WaitingForChildren::class, Approved::class, GuardedApproval::class],
         ]]);
     $nodes = [new Node('owner', ApproveStep::class)];
     if ($parent) {
