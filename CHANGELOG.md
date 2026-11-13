@@ -31,6 +31,7 @@
 
 ### Maintenance
 
+- [IMPROVED] Simplify the README around runnable Laravel examples and preserve the full reference in a linked guide.
 - Add Scarlett branding, visual workflow diagrams and a Laravel-focused README with a runnable quick start.
 - Disclose AI-assisted development with a README badge and transparency note.
 - Reduce repeated graph hydration and publication lookups; cache validated state configuration and narrow recovery candidates.
