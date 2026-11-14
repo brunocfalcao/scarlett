@@ -6,6 +6,9 @@ namespace Scarlett\Definition;
 
 use InvalidArgumentException;
 
+/**
+ * An application-owned identity with exact comparison, independent of SQL collation.
+ */
 final readonly class Subject
 {
     public function __construct(public string $subjectType, public string $subjectId)

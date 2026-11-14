@@ -7,6 +7,10 @@ namespace Scarlett\Inputs;
 use InvalidArgumentException;
 use Scarlett\Models\StepRecord;
 
+/**
+ * Stores binding recipes at admission and resolves live values only at execution.
+ * Result references must be prerequisites; the binding itself adds no ordering edge.
+ */
 final class InputBindings
 {
     public function __construct(private PayloadCodec $codec) {}

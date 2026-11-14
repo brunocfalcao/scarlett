@@ -390,6 +390,10 @@ Migration `000007_add_runtime_children` adds nullable runtime handoff fields and
 refuses rollback while an unfinished workflow uses them. For Scarlett 1.x, also
 follow the [2.0 upgrade checklist](runtime-children.md#upgrade-from-scarlett-1x).
 
+Migration `000008_add_query_indexes` adds the indexes described in
+[large-table rollout notes](database-indexes.md). Version 2.0.2 changes documentation
+and comments only; it adds no migration or runtime API.
+
 Stop admission/workers and drain or deliberately cancel outstanding work before
 rolling back code/schema. Rolling back these migrations removes slot pointers
 and failure history; it is not a live feature toggle. Preserve required history

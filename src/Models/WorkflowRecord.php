@@ -8,6 +8,9 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * The aggregate and lock boundary shared by every step and failure hook in a workflow.
+ */
 class WorkflowRecord extends Model
 {
     protected $table = 'scarlett_workflows';

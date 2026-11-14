@@ -70,7 +70,8 @@ php artisan migrate
 ```
 
 Laravel discovers Scarlett's service provider automatically. It registers the
-configuration, package migrations and `scarlett:recover` command. For local package
+configuration, package migrations and the `scarlett:recover`, `scarlett:archive`
+and `scarlett:purge` commands. For local package
 development, Composer also supports a symlinked [path repository](https://getcomposer.org/doc/05-repositories.md#path).
 
 ### 2. Configure your queue
@@ -586,6 +587,9 @@ Local tests use Pest TIA with Herd coverage or PCOV/Xdebug; explicit selections 
 directly. CI runs exhaustive non-TIA tests. Without `SCARLETT_TEST_DRIVER`, the
 historical default uses SQLite features and MySQL collisions. `composer format`
 applies Laravel Pint.
+
+For implementation responsibilities, table ownership and lock ordering, read the
+[contributor architecture](architecture.md).
 
 See the [changelog](../CHANGELOG.md) for changes. Scarlett is [MIT licensed](../LICENSE).
 

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Scarlett\Failures;
 
+/**
+ * Lifecycle of a terminal hook, independent from the already-settled step state.
+ */
 enum Status: string
 {
     case Pending = 'pending';

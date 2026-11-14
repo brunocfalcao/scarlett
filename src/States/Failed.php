@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Scarlett\States;
 
+/**
+ * Terminal failure that blocks successors and activates rescue and failure handling.
+ */
 class Failed extends StepState
 {
     public static $name = 'failed';

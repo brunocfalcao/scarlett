@@ -11,6 +11,10 @@ use Scarlett\Inputs\PayloadCodec;
 use Scarlett\States\Completed;
 use Throwable;
 
+/**
+ * Executes one claimed attempt, separating action persistence from verification.
+ * Once action_completed is stored, redelivery must never run that action again.
+ */
 final class Runner
 {
     public function __construct(

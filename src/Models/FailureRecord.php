@@ -10,6 +10,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Scarlett\Execution\FailureCause;
 use Scarlett\Failures\Status;
 
+/**
+ * Durable terminal-hook state and its immutable original failure snapshot.
+ * Mutate through the coordinator so workflow ownership and settlement stay consistent.
+ */
 class FailureRecord extends Model
 {
     protected $table = 'scarlett_failures';

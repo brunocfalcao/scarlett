@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Scarlett\States;
 
+/**
+ * Admitted definition awaiting prerequisites, parent readiness or admission reopening.
+ */
 class Pending extends StepState
 {
     public static $name = 'pending';

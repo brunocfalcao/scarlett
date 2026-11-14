@@ -6,6 +6,10 @@ namespace Scarlett\Definition;
 
 use DateTimeInterface;
 
+/**
+ * An immutable definition, not a business step instance.
+ * Stages order siblings; parent and rescue links determine their separate groups.
+ */
 final readonly class Node
 {
     /** The published schema stores identities of at most 255 UTF-8 characters. */
@@ -25,6 +29,7 @@ final readonly class Node
         public ?ExecutionOptions $execution = null,
     ) {}
 
+    /** A node override replaces the class options object; unset fields fall back to package defaults. */
     public function executionOptions(): ExecutionOptions
     {
         return $this->execution ?? $this->step::executionOptions();

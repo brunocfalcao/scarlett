@@ -13,6 +13,10 @@ use Scarlett\Definition\Subject;
 use Scarlett\Exceptions\DeletionVetoed;
 use Scarlett\Models\WorkflowRecord;
 
+/**
+ * Deletes a subject across all lanes after a transactional consumer veto check.
+ * Admission is locked first; guarded subjects are inspected but never deleted.
+ */
 final class SubjectDeletion
 {
     /**

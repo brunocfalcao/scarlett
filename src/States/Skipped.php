@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Scarlett\States;
 
+/**
+ * Intentional no-op: satisfies sibling ordering but supplies no action result.
+ * Unstarted descendants are skipped with their parent.
+ */
 class Skipped extends StepState
 {
     public static $name = 'skipped';

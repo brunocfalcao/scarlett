@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Scarlett\States;
 
+/**
+ * An eligible attempt with a durable delivery intent; it may still have a future due time.
+ */
 class Queued extends StepState
 {
     public static $name = 'queued';

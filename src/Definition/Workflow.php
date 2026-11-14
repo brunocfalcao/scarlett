@@ -9,6 +9,10 @@ use ReflectionClass;
 use Scarlett\Execution\Invoker;
 use Scarlett\Step;
 
+/**
+ * Validates the declared graph and signatures without constructing business steps.
+ * Dependencies include all earlier stages in the same parent/rescue group.
+ */
 final readonly class Workflow
 {
     /** @param list<Node> $nodes */

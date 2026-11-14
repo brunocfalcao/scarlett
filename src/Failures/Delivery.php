@@ -9,6 +9,10 @@ use Scarlett\Jobs\ExecuteFailure;
 use Scarlett\Models\FailureRecord;
 use Throwable;
 
+/**
+ * Publishes terminal-hook attempts using the original step routing and timeout.
+ * A failed publish leaves the failure record recoverable by the recovery command.
+ */
 final class Delivery
 {
     public function flush(string $workflowId): void

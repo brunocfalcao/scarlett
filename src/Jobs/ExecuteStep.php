@@ -11,6 +11,9 @@ use Scarlett\Execution\Runner;
 use Scarlett\Models\StepRecord;
 use Scarlett\States\Phase;
 
+/**
+ * A primitive transport envelope; Scarlett owns business retries and attempt authority.
+ */
 final class ExecuteStep implements ShouldQueue
 {
     use InteractsWithQueue;

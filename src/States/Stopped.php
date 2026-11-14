@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Scarlett\States;
 
+/**
+ * Intentional terminal stop with the same recovery semantics as failure.
+ */
 class Stopped extends StepState
 {
     public static $name = 'stopped';

@@ -6,6 +6,10 @@ namespace Scarlett\States;
 
 use InvalidArgumentException;
 
+/**
+ * Validates stable aliases and scheduling semantics for configured states.
+ * Cached mappings are rebuilt when configuration changes; settled work cannot reopen.
+ */
 final class StateRegistry
 {
     private ?array $stateConfiguration = null;

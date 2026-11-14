@@ -15,6 +15,10 @@ use ReflectionType;
 use ReflectionUnionType;
 use Scarlett\Step;
 
+/**
+ * Binds explicit named inputs to constructor and handle signatures at execution time.
+ * Only an exact Context type is engine-injected; services require explicit bindings.
+ */
 final class Invoker
 {
     public function construct(string $class, array $inputs, ?Context $context = null): Step

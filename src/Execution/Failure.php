@@ -8,6 +8,10 @@ use InvalidArgumentException;
 use Scarlett\Inputs\PayloadCodec;
 use Scarlett\Models\FailureRecord;
 
+/**
+ * Persisted failure context that remains inspectable when original inputs cannot restore.
+ * The stable failure ID identifies the logical effect across handler attempts.
+ */
 final readonly class Failure
 {
     public function __construct(

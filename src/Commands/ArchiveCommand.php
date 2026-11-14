@@ -7,6 +7,9 @@ namespace Scarlett\Commands;
 use Illuminate\Support\Carbon;
 use Scarlett\History;
 
+/**
+ * Marks eligible finished workflows in place using a consumer-selected retention age.
+ */
 final class ArchiveCommand extends RetentionCommand
 {
     protected $signature = 'scarlett:archive

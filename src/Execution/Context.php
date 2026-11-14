@@ -8,6 +8,10 @@ use Scarlett\Engine;
 use Scarlett\Failures\Coordinator;
 use Scarlett\Models\StepRecord;
 
+/**
+ * An attempt-scoped capability for guarded writes, lease renewal and retry checks.
+ * Failure handlers use their own attempt authority even though the step has settled.
+ */
 final readonly class Context
 {
     public function __construct(public string $workflowId, public string $stepId, public string $attempt, public int $failures, public ?string $failureId = null) {}

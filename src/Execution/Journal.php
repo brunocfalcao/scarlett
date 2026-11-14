@@ -12,6 +12,10 @@ use Scarlett\States\Phase;
 use Spatie\ModelStates\Exceptions\TransitionNotAllowed;
 use Spatie\ModelStates\Exceptions\TransitionNotFound;
 
+/**
+ * Persists state transitions, timestamps and terminal-hook registration together.
+ * Callers must hold the workflow lock so history and progression see one outcome.
+ */
 final class Journal
 {
     /** A denied completion belongs to this step, including when its last child triggers it. */

@@ -12,6 +12,10 @@ use Scarlett\Models\StepRecord;
 use Scarlett\States\Phase;
 use Throwable;
 
+/**
+ * Publishes committed delivery intents without coupling transport success to action success.
+ * Publishing leases limit duplicate publication; attempt claims fence duplicate execution.
+ */
 final class Delivery
 {
     public function afterCommit(string $workflowId): void

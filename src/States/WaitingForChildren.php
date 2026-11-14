@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Scarlett\States;
 
+/**
+ * The parent action is saved, but its subtree has not yet settled.
+ */
 class WaitingForChildren extends StepState
 {
     public static $name = 'waitingforchildren';

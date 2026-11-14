@@ -10,6 +10,10 @@ use Scarlett\Execution\Invoker;
 use Scarlett\Inputs\InputBindings;
 use Throwable;
 
+/**
+ * Runs a claimed terminal hook with restored inputs or the static metadata fallback.
+ * Hook errors retry this handler; they never call the business exception classifier.
+ */
 final class Runner
 {
     public function __construct(private Coordinator $coordinator, private InputBindings $bindings, private Invoker $invoker) {}

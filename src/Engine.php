@@ -29,6 +29,10 @@ use Scarlett\States\Phase;
 use Scarlett\States\Running;
 use Scarlett\States\WaitingForChildren;
 
+/**
+ * Coordinates durable workflow changes; step actions run outside mutation locks.
+ * Guarded callbacks run inside those locks; attempt mutations recheck ownership.
+ */
 final class Engine
 {
     public function __construct(
@@ -69,6 +73,7 @@ final class Engine
         return app(Admission::class)->transaction($operation);
     }
 
+    /** Call before consumer locks, or inside an outer withAdmission transaction acquired first. */
     public function start(Workflow $definition): WorkflowRecord
     {
         app(Configuration::class)->validate();
@@ -133,6 +138,7 @@ final class Engine
         }, advance: false);
     }
 
+    /** Advisory read only; use whileCurrent to make ownership and database writes atomic. */
     public function isCurrent(string $stepId, string $attempt): bool
     {
         $step = StepRecord::find($stepId);
@@ -157,6 +163,7 @@ final class Engine
         }, advance: false);
     }
 
+    /** Save the result before verification so its retries cannot repeat the business action. */
     public function saveAction(string $stepId, string $attempt, mixed $result, string $completionState): bool
     {
         $payload = $this->codec->encode($result);
@@ -299,6 +306,7 @@ final class Engine
         });
     }
 
+    /** Action and verification counters are independent; throttles never enter this path. */
     private function retry(StepRecord $step, bool $verification, ?int $delay = null, FailureCause $cause = FailureCause::BudgetExhausted): void
     {
         $counter = $verification ? 'verifications' : 'failures';

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Scarlett\States;
 
+/**
+ * Successful settlement that releases dependent siblings.
+ */
 class Completed extends StepState
 {
     public static $name = 'completed';

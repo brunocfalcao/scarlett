@@ -10,6 +10,10 @@ use Scarlett\States\Failed;
 use Scarlett\States\Skipped;
 use Scarlett\States\Stopped;
 
+/**
+ * A hook outcome or runtime-child handoff interpreted by the engine.
+ * Ordinary handle return values are results; only its child decision is intercepted.
+ */
 final readonly class Decision
 {
     private function __construct(

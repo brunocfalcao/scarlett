@@ -9,6 +9,10 @@ use Scarlett\Execution\Delivery;
 use Scarlett\Execution\Progression;
 use Scarlett\Models\WorkflowRecord;
 
+/**
+ * Orders workflow admission before consumer writes and global deletion.
+ * Shared admission permits producers together; exclusive operations wait for them.
+ */
 final class Admission
 {
     /** Acquire admission before workflow or consumer locks; callbacks must be replay-safe database work. */

@@ -7,6 +7,9 @@ namespace Scarlett\Policies;
 use Scarlett\Execution\Context;
 use Scarlett\Execution\Decision;
 
+/**
+ * Reusable exception classification contract for consumer policies and input preparation.
+ */
 abstract class ExceptionHandler
 {
     abstract public function decide(\Throwable $exception, Context $context): Decision;

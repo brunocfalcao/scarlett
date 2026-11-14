@@ -12,6 +12,10 @@ use Scarlett\Failures\Status;
 use Scarlett\Models\FailureRecord;
 use Throwable;
 
+/**
+ * A primitive transport envelope for a durable terminal-hook attempt.
+ * Transport failures leave recovery to Scarlett rather than rerunning business work.
+ */
 final class ExecuteFailure implements ShouldQueue
 {
     use InteractsWithQueue;

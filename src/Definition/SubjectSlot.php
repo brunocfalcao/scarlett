@@ -6,6 +6,10 @@ namespace Scarlett\Definition;
 
 use InvalidArgumentException;
 
+/**
+ * A named current-workflow lane for an application subject.
+ * The hash encodes all three values without delimiter or collation ambiguity.
+ */
 final readonly class SubjectSlot
 {
     public function __construct(public string $subjectType, public string $subjectId, public string $name)

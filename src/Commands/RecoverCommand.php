@@ -7,6 +7,9 @@ namespace Scarlett\Commands;
 use Illuminate\Console\Command;
 use Scarlett\Recovery;
 
+/**
+ * Scheduler or manual entry point for repair, not the normal progression loop.
+ */
 final class RecoverCommand extends Command
 {
     protected $signature = 'scarlett:recover {workflow? : Limit recovery to one workflow}';

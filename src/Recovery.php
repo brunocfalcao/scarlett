@@ -11,6 +11,10 @@ use Scarlett\Models\StepRecord;
 use Scarlett\States\Phase;
 use Scarlett\States\StateRegistry;
 
+/**
+ * Repairs lost deliveries and expired leases, independently of healthy progression.
+ * Candidate reads are advisory; mutation rechecks eligibility under the workflow lock.
+ */
 final class Recovery
 {
     public function stalled(?string $workflowId = null): bool

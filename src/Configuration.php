@@ -10,6 +10,10 @@ use Scarlett\Definition\ExecutionOptions;
 use Scarlett\Policies\ExceptionHandler;
 use Scarlett\States\StateRegistry;
 
+/**
+ * Rejects invalid execution contracts before any workflow is admitted.
+ * Timeout and lease ordering must hold for defaults and every node snapshot.
+ */
 final class Configuration
 {
     public function validate(): void

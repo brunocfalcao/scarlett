@@ -17,6 +17,10 @@ use Scarlett\States\Phase;
 use Scarlett\States\Queued;
 use Scarlett\States\Skipped;
 
+/**
+ * Reaches a stable graph outcome inside the current workflow transaction.
+ * Rescue branches drain bottom-up; successful rescue does not reopen failed work.
+ */
 final class Progression
 {
     public function __construct(private Journal $journal) {}
@@ -164,6 +168,7 @@ final class Progression
         }
     }
 
+    /** A fresh attempt token and its outbox intent must commit together before publication. */
     public function enqueue(StepRecord $step, int $delay = 0): void
     {
         $availableAt = now()->addSeconds($delay);

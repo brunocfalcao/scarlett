@@ -18,6 +18,10 @@ use Scarlett\Models\WorkflowRecord;
 use Scarlett\States\Phase;
 use Scarlett\Step;
 
+/**
+ * Owns one durable failure record per opted-in failed step and its recoverable attempts.
+ * Parent hooks await ordinary descendants and their hooks, not an external exactly-once guarantee.
+ */
 final class Coordinator
 {
     /** Called by the journal inside the owning workflow transaction. */

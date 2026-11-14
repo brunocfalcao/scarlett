@@ -11,6 +11,10 @@ use Scarlett\Execution\ChildPhase;
 use Scarlett\States\StepState;
 use Spatie\ModelStates\HasStates;
 
+/**
+ * Persisted definition, latest attempt and durable action result.
+ * Use engine operations for writes; direct state updates bypass graph and journal invariants.
+ */
 class StepRecord extends Model
 {
     use HasStates;

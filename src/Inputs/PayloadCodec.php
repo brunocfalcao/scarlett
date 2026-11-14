@@ -13,6 +13,10 @@ use Illuminate\Support\Collection;
 use InvalidArgumentException;
 use Scarlett\Contracts\PayloadMapper;
 
+/**
+ * Persists supported values as versioned JSON instead of PHP object serialization.
+ * Object restoration uses configured aliases; unsupported values fail explicitly.
+ */
 final class PayloadCodec
 {
     private const VERSION = 2;

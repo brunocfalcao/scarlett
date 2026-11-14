@@ -11,6 +11,10 @@ use InvalidArgumentException;
 use Scarlett\Models\WorkflowRecord;
 use Scarlett\States\Phase;
 
+/**
+ * Retains or removes whole workflow graphs under their owning lock.
+ * Archive is an in-place marker; deletion explicitly removes dependent records.
+ */
 final class History
 {
     public const DEFAULT_BATCH_SIZE = 100;
@@ -96,6 +100,7 @@ final class History
         });
     }
 
+    /** Explicit dependency order preserves restrictive foreign keys without cascading deletion. */
     private function remove(WorkflowRecord $workflow): void
     {
         $ids = $workflow->steps()->orderBy('id')->lockForUpdate()->pluck('id');

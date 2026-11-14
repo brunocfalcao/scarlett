@@ -11,6 +11,10 @@ use Scarlett\Definition\Workflow;
 use Scarlett\Exceptions\ReplacementVetoed;
 use Scarlett\Models\WorkflowRecord;
 
+/**
+ * Serializes replacement of one named subject lane and preserves its current pointer.
+ * A veto escapes the transaction before being converted to a null result.
+ */
 final class WorkflowSlots
 {
     /** Invoke before acquiring application locks; callback writes must share this connection and be replay-safe. */

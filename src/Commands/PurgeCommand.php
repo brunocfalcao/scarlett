@@ -7,6 +7,9 @@ namespace Scarlett\Commands;
 use Illuminate\Support\Carbon;
 use Scarlett\History;
 
+/**
+ * Permanently removes eligible archived graphs while preserving unfinished work.
+ */
 final class PurgeCommand extends RetentionCommand
 {
     protected $signature = 'scarlett:purge

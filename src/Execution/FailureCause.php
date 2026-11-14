@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Scarlett\Execution;
 
+/**
+ * The origin of a terminal step outcome, distinct from later failure-hook errors.
+ */
 enum FailureCause: string
 {
     case Decided = 'decided';

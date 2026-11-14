@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Scarlett\States;
 
+/**
+ * Withdrawn authority: blocks successors without activating failure recovery.
+ */
 class Cancelled extends StepState
 {
     public static $name = 'cancelled';

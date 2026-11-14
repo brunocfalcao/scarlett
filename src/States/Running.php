@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Scarlett\States;
 
+/**
+ * A claimed attempt whose lease must remain current before guarded mutations.
+ */
 class Running extends StepState
 {
     public static $name = 'running';

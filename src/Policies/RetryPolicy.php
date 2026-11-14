@@ -6,6 +6,10 @@ namespace Scarlett\Policies;
 
 use Scarlett\Models\StepRecord;
 
+/**
+ * Applies the admitted budget, counting the initial attempt in the total.
+ * After the last configured backoff entry, later permitted retries reuse that delay.
+ */
 class RetryPolicy
 {
     public function permits(int $failures, bool $verification = false, ?StepRecord $step = null): bool

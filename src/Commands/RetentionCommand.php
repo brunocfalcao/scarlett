@@ -10,6 +10,10 @@ use InvalidArgumentException;
 use Scarlett\History;
 use ValueError;
 
+/**
+ * Validates an explicit age and fixes one cutoff for the entire retention run.
+ * Batch size bounds fetches, not the total eligible workflows processed.
+ */
 abstract class RetentionCommand extends Command
 {
     final public function handle(History $history): int

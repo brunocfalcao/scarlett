@@ -7,6 +7,10 @@ namespace Scarlett\Execution;
 use InvalidArgumentException;
 use Scarlett\States\StateRegistry;
 
+/**
+ * Checks successful completion semantics before persisting an accepted result.
+ * Registration alone is insufficient: the originating state must allow the transition.
+ */
 final class Completion
 {
     public function validate(string $state, string $from): void

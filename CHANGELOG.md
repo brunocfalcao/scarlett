@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.2 — 2026-11-14
+
+### Documentation
+
+- Explain responsibilities and invariants throughout the engine: admission lock order, attempt ownership, late inputs, action persistence, verification, cascading rescues, failure hooks and retention.
+- Add a contributor architecture guide with execution and lock diagrams, the seven-table map, telemetry semantics and migration/test boundaries.
+- Reconcile installation and lifecycle documentation. No runtime, public API, dependency or schema changes; all published migrations remain unchanged.
+
 ## 2.0.1 — 2026-11-14
 
 ### Performance

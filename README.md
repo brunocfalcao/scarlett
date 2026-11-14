@@ -225,6 +225,7 @@ The parent waits, verifies the backup's result, then releases its successors.
 - [Replace a subject's current workflow](docs/consumer-lifecycle.md#replace-the-current-workflow-of-a-subject)
 - [Handle terminal failures, including worker loss](docs/consumer-lifecycle.md#handle-every-terminal-failure-durably)
 - [Guard business writes and admit follow-up work](docs/consumer-lifecycle.md#admit-follow-up-work-atomically-with-consumer-writes)
+- [Contributor architecture and table map](docs/architecture.md)
 - [Full guide](docs/guide.md) · [Configuration](config/scarlett.php) · [Testing](docs/guide.md#develop-and-test-the-package) · [Changelog](CHANGELOG.md)
 
 ## Development transparency

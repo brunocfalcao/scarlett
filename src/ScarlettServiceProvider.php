@@ -10,6 +10,10 @@ use Scarlett\Commands\PurgeCommand;
 use Scarlett\Commands\RecoverCommand;
 use Scarlett\States\StateRegistry;
 
+/**
+ * Registers Laravel integration without scheduling work for the consumer.
+ * Migrations stay in the package so normal application migrations discover upgrades.
+ */
 class ScarlettServiceProvider extends ServiceProvider
 {
     public function register(): void
