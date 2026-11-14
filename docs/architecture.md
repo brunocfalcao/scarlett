@@ -162,7 +162,11 @@ Package feature tests exercise graph, payload, state and lifecycle contracts.
 `tests/Support/functions.php` drives actual attempts and compares explicit state
 maps. Collision tests use independent PHP workers and observed contention;
 `tests/Collision/Environment.php` refuses a database outside the dedicated test
-resources. Queue tests exercise serialized jobs through a real database queue.
+resources. Queue tests exercise serialized jobs through real database and Redis queues.
+Recovery enumerates candidates in bounded ID-based batches, closing read cursors
+before acquiring write locks. Each action or failure-handler recovery still
+rechecks current eligibility under its workflow lock. This prevents an old SQLite
+read snapshot from blocking a concurrent recovery write.
 
 The separate Laravel host owns the synthetic quote HTTP/worker integration and
 isolated stress command. Its pending testing UI is distinct from the read-only

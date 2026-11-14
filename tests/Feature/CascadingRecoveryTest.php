@@ -19,6 +19,59 @@ beforeEach(function () {
     ControlledStep::$constructed = [];
 });
 
+it('drains mixed skipped and successful rescues before releasing ancestor recovery', function (bool $parallel, bool $reversed) {
+    $engine = app(Engine::class);
+    $unrelated = $engine->start(new Workflow([controlled('unrelated')]));
+    $nodes = [
+        controlled('parent'), controlled('child', 'fail', parent: 'parent'),
+        controlled('first', rescues: 'child'),
+        controlled('skip', 'skip', stage: $parallel ? 0 : 1, rescues: 'child'),
+        controlled('last', stage: $parallel ? 0 : 2, rescues: 'child'),
+        controlled('join', stage: 3, rescues: 'child'),
+        controlled('parent-rescue', rescues: 'parent'), controlled('after', stage: 1),
+    ];
+    $flow = $engine->start(new Workflow($reversed ? array_reverse($nodes) : $nodes));
+    runStep($flow->id, 'parent');
+    runStep($flow->id, 'child');
+    $failure = $flow->steps()->where('key', 'child')->sole()->getRawOriginal();
+
+    expect(statesOf($flow->id))->toBe([
+        'after' => 'pending', 'child' => 'failed', 'first' => 'queued', 'join' => 'pending',
+        'last' => $parallel ? 'queued' : 'pending', 'parent' => 'waitingforchildren',
+        'parent-rescue' => 'pending', 'skip' => $parallel ? 'queued' : 'pending',
+    ]);
+
+    foreach ($parallel ? ['skip', 'first'] : ['first', 'skip'] as $key) {
+        runStep($flow->id, $key);
+        expect(statesOf($flow->id)['parent'])->toBe('waitingforchildren')
+            ->and(statesOf($flow->id)['parent-rescue'])->toBe('pending')
+            ->and(statesOf($flow->id)['join'])->toBe('pending');
+    }
+    expect(statesOf($flow->id)['skip'])->toBe('skipped')
+        ->and(statesOf($flow->id)['last'])->toBe('queued')
+        ->and(ControlledStep::$actions['skip'] ?? 0)->toBe(0);
+
+    runStep($flow->id, 'last');
+    expect(statesOf($flow->id)['join'])->toBe('queued')
+        ->and(statesOf($flow->id)['parent-rescue'])->toBe('pending');
+    runStep($flow->id, 'join');
+    expect(statesOf($flow->id)['parent'])->toBe('failed')
+        ->and(statesOf($flow->id)['parent-rescue'])->toBe('queued')
+        ->and(statesOf($flow->id)['after'])->toBe('cancelled');
+    runStep($flow->id, 'parent-rescue');
+    foreach (['skip', 'last', 'join', 'parent-rescue', 'after'] as $key) {
+        runStep($flow->id, $key);
+    }
+
+    expect(statesOf($flow->id))->toBe([
+        'after' => 'cancelled', 'child' => 'failed', 'first' => 'completed', 'join' => 'completed',
+        'last' => 'completed', 'parent' => 'failed', 'parent-rescue' => 'completed', 'skip' => 'skipped',
+    ])->and($flow->fresh()->status)->toBe('failed')
+        ->and($flow->steps()->where('key', 'child')->sole()->getRawOriginal())->toBe($failure)
+        ->and(ControlledStep::$actions)->toBe(['parent' => 1, 'first' => 1, 'last' => 1, 'join' => 1, 'parent-rescue' => 1])
+        ->and(statesOf($unrelated->id))->toBe(['unrelated' => 'queued']);
+})->with(['parallel' => true, 'sequential' => false])->with(['forward definitions' => false, 'reversed definitions' => true]);
+
 it('drains parallel and sequential child rescues before activating parent recovery', function (string $outcome, bool $reversed) {
     $engine = app(Engine::class);
     $unrelated = $engine->start(new Workflow([controlled('unrelated')]));

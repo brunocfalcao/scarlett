@@ -13,7 +13,8 @@ use Scarlett\States\StateRegistry;
 
 /**
  * Repairs lost deliveries and expired leases, independently of healthy progression.
- * Candidate reads are advisory; mutation rechecks eligibility under the workflow lock.
+ * Candidate batches close their read cursors before mutation acquires the workflow lock.
+ * Reads are advisory; mutation rechecks eligibility under that lock.
  */
 final class Recovery
 {
@@ -54,7 +55,7 @@ final class Recovery
 
     private function failureCandidates(?string $workflowId): iterable
     {
-        return FailureRecord::unfinished()->when($workflowId !== null, fn ($query) => $query->where('workflow_id', $workflowId))->cursor();
+        return FailureRecord::unfinished()->when($workflowId !== null, fn ($query) => $query->where('workflow_id', $workflowId))->lazyById(100);
     }
 
     private function candidates(?string $workflowId): iterable
@@ -65,7 +66,7 @@ final class Recovery
 
         return StepRecord::whereIn('state', $states)
             ->whereHas('workflow', fn ($query) => $query->where('status', 'running'))
-            ->when($workflowId !== null, fn ($query) => $query->where('workflow_id', $workflowId))->cursor();
+            ->when($workflowId !== null, fn ($query) => $query->where('workflow_id', $workflowId))->lazyById(100);
     }
 
     private function needsRecovery(StepRecord $step): bool

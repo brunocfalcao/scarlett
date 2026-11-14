@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.2.1 — 2026-11-14
+
+### Fixed
+
+- Recover lost deliveries and expired action/failure-handler leases under concurrent SQLite recovery commands. Bounded candidate batches close read cursors before acquiring write locks; eligibility and ownership are still rechecked under the workflow lock.
+
+### Tests and maintenance
+
+- Expand lifecycle, input/encoding, command/configuration and Step Dispatcher parity coverage, including mixed skipped/successful rescue chains and ancestor barriers.
+- Exercise real Redis and database queue workers, duplicate delivery, recovery/cooldown collisions, worker loss and bounded scale scenarios. Provision Redis and its PHP extension in all six CI lanes.
+- Make Redis quota-delay verification independent of worker startup speed with a shared test clock and exact before/due queue assertions. Name invalid UTF-8 datasets so test reporting and TIA metadata remain encodable.
+
+### Upgrade
+
+- No schema, dependency, configuration or public API change. Published migrations are unchanged. Reload long-running workers through the consumer’s normal deployment procedure to use the recovery fix.
+
 ## 2.2.0 — 2026-11-14
 
 ### Added

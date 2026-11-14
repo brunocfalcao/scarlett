@@ -24,6 +24,9 @@ flowchart LR
     Slug --> Result["hello-laravel"]
 ```
 
+Version 2.2.1 fixes concurrent SQLite recovery and expands regression coverage.
+See the [changelog](CHANGELOG.md) for upgrade details.
+
 ## Install
 
 Requires **Laravel 13**, **PHP 8.4+** and **SQLite, MySQL or PostgreSQL**.

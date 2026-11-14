@@ -403,7 +403,10 @@ Schedule::command('scarlett:recover')->everyMinute();
 
 Choose the recovery interval for your workload. Healthy progression does not
 need this command. It repairs lost deliveries and expired execution leases.
-You can also invoke `php artisan scarlett:recover` manually.
+You can also invoke `php artisan scarlett:recover` manually. Candidate reads use
+bounded ID-based batches; each recovery rechecks eligibility under the workflow
+lock. Version 2.2.1 closes candidate read cursors before writes, fixing concurrent
+SQLite recovery for action and terminal-hook attempts.
 
 ```php
 use Scarlett\Facades\Scarlett;
@@ -587,6 +590,14 @@ SQLite feature tests use memory; process tests share a dedicated temporary file,
 WAL and immediate transactions. The suite checks the actual target before resetting
 it. Never point it at an application database or run two suites against the same
 backend simultaneously.
+
+Real Redis queue tests also require the PHP Redis extension and a reachable Redis
+server (CI uses Redis 7; the current local gate uses Redis 8.8). Configure
+`REDIS_HOST`, `REDIS_PORT` and optional `REDIS_PASSWORD`; test queues use unique
+prefixes in Redis database 0. Use an isolated development/test Redis instance.
+Redis is a test requirement here, not a new mandatory engine dependency.
+The quota-delay test shares a controlled clock with independent workers so startup
+latency cannot change the expected admission window.
 
 Lock assertions follow each database's semantics: server tests observe row-lock
 waits; SQLite tests observe contenders before acquisition and verify acquisition

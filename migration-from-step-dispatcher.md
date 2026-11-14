@@ -369,3 +369,13 @@ Do not replace `whileCurrent()` with a release call or suppress heartbeat needs.
 Consumer acceptance must cover actual database/queue routing, temporary/session
 state, lazy input queries, long calls, cancellation, verification retries and
 terminal handlers with the option enabled. See [the complete connection contract](docs/database-connections.md).
+
+## Concurrent recovery fix (v2.2.1)
+
+Existing Scarlett consumers need no schema, configuration or workflow conversion.
+Recovery now closes candidate read cursors before taking write locks, allowing
+competing SQLite recovery commands to repair expired leases and lost deliveries
+for both actions and terminal hooks. Reload workers through the consumer's normal
+release process. Retry budgets, eligibility, attempt fencing and failure snapshots
+retain their existing meaning. The wider package/host suites do not replace the
+consumer acceptance matrix above.

@@ -137,8 +137,19 @@ $result = match ($arguments['operation']) {
     'failure-write' => app(Coordinator::class)->whileCurrent($arguments['failure'], $arguments['attempt'], fn () => DB::table('consumer_records')->where('id', $arguments['record'])->increment('writes')),
     'failure-recover' => app(Coordinator::class)->recover($arguments['failure']),
     'admit' => $engine->start(new Workflow([new Node('admitted', EchoStep::class)]))->id,
+    'cli-recover' => (function () use ($arguments): int {
+        Artisan::call('scarlett:recover', isset($arguments['workflow']) ? ['workflow' => $arguments['workflow']] : []);
+        preg_match('/Recovered (\d+) execution/', Artisan::output(), $matches);
+
+        return (int) ($matches[1] ?? 0);
+    })(),
     'cooldown' => (function () use ($engine): bool {
         $engine->cooldown();
+
+        return true;
+    })(),
+    'reopen' => (function () use ($engine): bool {
+        $engine->reopen();
 
         return true;
     })(),

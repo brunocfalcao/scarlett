@@ -13,16 +13,22 @@ use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\Failures\Status;
 use Scarlett\Inputs\FromResult;
+use Scarlett\Inputs\ModelReference;
 use Scarlett\Inputs\PayloadCodec;
 use Scarlett\Inputs\Service;
 use Scarlett\Tests\Collision\Environment;
 use Scarlett\Tests\Fixtures\Amount;
 use Scarlett\Tests\Fixtures\AmountMapper;
 use Scarlett\Tests\Fixtures\EchoStep;
+use Scarlett\Tests\Fixtures\EnumStep;
 use Scarlett\Tests\Fixtures\FailureAwareStep;
+use Scarlett\Tests\Fixtures\IntPriority;
+use Scarlett\Tests\Fixtures\ModelEchoStep;
 use Scarlett\Tests\Fixtures\RuntimeParent;
 use Scarlett\Tests\Fixtures\SlowFailureAwareStep;
 use Scarlett\Tests\Fixtures\SlowStep;
+use Scarlett\Tests\Fixtures\SourceRecord;
+use Scarlett\Tests\Fixtures\StringStatus;
 use Scarlett\Tests\Fixtures\TypedStep;
 use Symfony\Component\Process\Exception\ProcessSignaledException;
 use Symfony\Component\Process\Process;
@@ -205,4 +211,51 @@ it('executes nested runtime backups and parent verification through an independe
     expect($flow->steps()->count())->toBe(5);
     expect($flow->steps()->get()->map(fn ($s) => (string) $s->state)->unique()->values()->all())->toBe(['completed']);
     expect(app(PayloadCodec::class)->decode($flow->steps()->where('key', 'after')->sole()->result))->toBe('backup result');
+});
+
+it('round-trips BackedEnum and ModelReference payloads through an independent queue worker', function () {
+    config([
+        'queue.default' => 'database',
+        'queue.connections.database.connection' => Environment::driver(),
+        'scarlett.enums' => ['status' => StringStatus::class, 'priority' => IntPriority::class],
+        'scarlett.models' => ['source_record' => SourceRecord::class],
+    ]);
+
+    Schema::dropIfExists('source_records');
+    Schema::create('source_records', function (Blueprint $table): void {
+        $table->id();
+        $table->string('name');
+    });
+
+    try {
+        $record = SourceRecord::create(['name' => 'queued-record']);
+
+        $flow = app(Engine::class)->start(new Workflow([
+            new Node('enums', EnumStep::class, inputs: [
+                'status' => StringStatus::Pending,
+                'priority' => IntPriority::High,
+            ]),
+            new Node('model', ModelEchoStep::class, stage: 1, inputs: ['record' => new ModelReference('source_record', $record->id)]),
+        ]));
+
+        $worker = new Process([PHP_BINARY, __DIR__.'/queue-worker.php']);
+        $worker->setTimeout(20);
+        $worker->mustRun();
+
+        $codec = app(PayloadCodec::class);
+        $enumStep = $flow->steps()->where('key', 'enums')->sole();
+        $modelStep = $flow->steps()->where('key', 'model')->sole();
+        $decodedModel = $codec->decode($modelStep->result);
+
+        expect($flow->fresh()->status)->toBe('completed')
+            ->and($codec->decode($enumStep->result))->toBe([
+                'status' => StringStatus::Pending,
+                'priority' => IntPriority::High,
+            ])
+            ->and($decodedModel)->toBeInstanceOf(SourceRecord::class)
+            ->and($decodedModel->is($record))->toBeTrue()
+            ->and($decodedModel->name)->toBe('queued-record');
+    } finally {
+        Schema::dropIfExists('source_records');
+    }
 });

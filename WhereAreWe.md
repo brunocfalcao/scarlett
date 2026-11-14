@@ -1,5 +1,47 @@
 # Current state — 2026-11-14
 
+## v2.2.1 recovery and expanded coverage — 2026-11-14
+
+Concurrent SQLite recovery now closes candidate read cursors before taking write
+locks. Bounded ID-based batches cover action and terminal-handler candidates;
+existing locked eligibility checks, failure snapshots and retry budgets remain.
+Four competing-command cases reproduced the lock failure before this fix and
+passed afterward. The package adds no schema, dependency or public API change;
+all ten published migrations remain byte-identical to v2.2.0.
+
+The candidate includes the complete test expansion since v2.2.0: lifecycle,
+encoding, command/configuration, parity, real Redis/database queue, recovery,
+cooldown and bounded scale cases. Mixed skipped/successful rescues cover parallel
+and sequential groups in both declaration orders. The separate reference host
+covers late duplicates in all five terminal states with unchanged persisted
+history and no repeated action or terminal hook.
+
+Isolated mutation checks failed all four rescue cases and all five terminal
+redelivery cases. A two-second worker-startup delay exposed a Redis test timing
+assumption; a shared test clock now proves exact delayed-queue state before and
+at eligibility. Naming invalid UTF-8 datasets keeps reporting/TIA metadata valid.
+CI provisions Redis 7 and its PHP extension in every PHP/database lane.
+
+Fresh full package runs on the final PHP candidate:
+
+| Database | Passed tests | Assertions |
+| --- | ---: | ---: |
+| SQLite | 523 | 4,824 |
+| MySQL | 523 | 4,831 |
+| PostgreSQL | 523 | 4,829 |
+
+Every lane includes feature, migration, real queue and collision tests, with no
+skipped cases. Package Pint, Composer strict validation, unchanged tested-PHP
+hashes, migration immutability, local documentation links and diff checks pass.
+
+The separate host passes **58 tests / 425 assertions** against this exact package path, using its
+exhaustive no-Git bootstrap exception. No browser, provider, consumer-production
+or capacity acceptance is implied. No consumer deployment or registry submission
+is part of this release.
+
+Publication and exact-SHA CI are tracked separately against the
+[v2.2.1 Release](https://github.com/brunocfalcao/scarlett/releases/tag/v2.2.1).
+
 ## v2.2.0 optional connection release — 2026-11-14
 
 Version 2.2.0 adds opt-in release of Laravel's default database connection before
