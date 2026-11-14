@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.2.0 — 2026-11-14
+
+### Added
+
+- Opt-in default database connection release before step actions, verification and terminal failure hooks, and when runners exit. Queries reconnect on demand; durable checkpoints and ownership guards remain unchanged.
+- `Context::releaseDatabaseConnection(): bool` and `Execution\ConnectionRelease::release(): bool` for an explicit boundary after request preparation. Active transactions, persistent connections and in-memory SQLite are preserved.
+
+### Upgrade
+
+- No schema migration, dependency change or workflow/step signature change. Enable with `SCARLETT_RELEASE_DATABASE_CONNECTION=true` using the package configuration mapping; the default is disabled.
+- Review session-local state and shared integrations before enabling. Queries inside an action can reconnect, and queue transport may reconnect after a runner exits. See [configuration, guarantees and limits](docs/database-connections.md).
+
 ## 2.1.0 — 2026-11-14
 
 ### Added

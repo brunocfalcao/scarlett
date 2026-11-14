@@ -1,5 +1,54 @@
 # Current state — 2026-11-14
 
+## v2.2.0 optional connection release — 2026-11-14
+
+Version 2.2.0 adds opt-in release of Laravel's default database connection before
+business actions, verification and durable terminal hooks, and when runners exit.
+Queries reconnect normally. Workflow definitions, step signatures, durable state,
+lease ownership, retries and parent/child barriers retain their existing contracts.
+
+Enable with `SCARLETT_RELEASE_DATABASE_CONNECTION=true`; the default is false.
+`Context::releaseDatabaseConnection(): bool` and
+`Execution\ConnectionRelease::release(): bool` allow a second explicit boundary
+after request preparation. Known active transactions, persistent connections and
+memory/URI SQLite stores remain connected. Other named connections are untouched.
+Session-local state and raw SQL transaction control are outside the opt-in contract.
+Queue acknowledgement and later queries may reconnect; zero idle worker connections
+and offline execution are not promised. See [the complete connection contract](docs/database-connections.md).
+
+There is no schema or dependency change. All ten published migrations retain their
+exact bytes. Consumers need no workflow conversion; no consumer configuration,
+lockfile, database or deployment was changed. This is source preparation only.
+
+Fresh local full suites ran on PHP 8.5.12 through `./run-pest-tia.sh --fresh`, with
+`SCARLETT_RELEASE_DATABASE_CONNECTION=true` and `SCARLETT_TEST_DRIVER` set per lane
+(local PostgreSQL user supplied separately):
+
+| Database | Passed tests | Assertions |
+| --- | ---: | ---: |
+| SQLite | 416 | 4,193 |
+| MySQL | 416 | 4,200 |
+| PostgreSQL | 416 | 4,198 |
+
+The seventeen new cases pass independently on all three databases (101 assertions
+each). They cover PDO release/reconnect, transaction and callback safety, disabled
+and ineligible connections, guarded writes/rollback, cancellation, terminal hooks,
+verification without action replay, quotas/retries and nested backup results.
+The full suites also exercise fresh/upgrade/repeat migrations and existing real
+worker collisions. Reference host: **14 tests / 56 assertions** against the exact
+package symlink, using its exhaustive no-Git TIA bootstrap exception.
+
+The first MySQL full run was interrupted during investigation of buffered output;
+its 192 passed / 224 pending result is not accepted as release proof. Only the
+complete repeat is eligible. No defect or source change resulted from that check.
+
+Package Pint, Composer strict validation, PHP syntax, unchanged tested-PHP hashes,
+local Markdown links and diff checks pass. No configured static analyzer exists.
+Browser, live-provider, consumer-production and throughput acceptance are unverified.
+Publication and exact-SHA CI will be verified against the
+[v2.2.0 Release](https://github.com/brunocfalcao/scarlett/releases/tag/v2.2.0);
+current canonical publication evidence lives in the workspace implementation record.
+
 ## v2.1.0 shared throttling source snapshot
 
 Version 2.1.0 adds named rolling-window quotas through `RateLimit`, with an

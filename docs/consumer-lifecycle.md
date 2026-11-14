@@ -379,6 +379,14 @@ This applies to timeout, lease, attempts, backoff and both verification options.
 The static method may run during validation and admission; keep it deterministic
 and free of external effects. Successors remain unconstructed until eligible.
 
+## Optional connection release
+
+Version 2.2.0 adds `Context::releaseDatabaseConnection(): bool` and opt-in runner
+boundaries. It also applies to failure-handler contexts. `whileCurrent()` and
+`withAdmission()` retain their atomicity: release is skipped during a transaction.
+No workflow/step signature or schema changes are required. Review the
+[connection-lifetime contract](database-connections.md) before enabling it.
+
 ## Package upgrade
 
 Run ordinary `php artisan migrate` after updating the package and before starting

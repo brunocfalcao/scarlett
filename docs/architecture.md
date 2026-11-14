@@ -40,12 +40,19 @@ between lifecycle hooks. Action persistence precedes verification. On redelivery
 of saved work, only preparation and verification repeat. Constructors, mappers and
 service resolution must therefore tolerate repeated preparation.
 
+When configured, runners release the default connection before actions, verification
+and failure hooks, and on exit. `ConnectionRelease` checks transaction and PDO
+state without opening new connections. It changes no durable checkpoint or lock
+order. Consumers can release again before an external call; session-local state
+must not cross those boundaries. See [connection lifetime](database-connections.md).
+
 ## Responsibilities and edit boundaries
 
 | Area | Responsibility | Keep true |
 | --- | --- | --- |
 | `Definition` | Declarative graph and execution defaults | No early business construction; node options replace class options |
 | `Inputs`, `Contracts/PayloadMapper` | Versioned JSON and late bindings | No arbitrary object serialization; aliases remain readable for retained work |
+| `Execution/ConnectionRelease` | Opt-in default-connection lifetime | Release only outside transactions; preserve memory SQLite; next query reconnects |
 | `Execution/Invoker` | Typed constructor/handler calls | Explicit names, exact Context injection and strict PHP invocation |
 | `Engine`, `Execution/Context` | Claims, leases and guarded mutations | A current token, running phase and future lease are all required |
 | `Execution/Journal`, `States` | Transitions and durable diagnostics | State semantics drive dependency, recovery and retention consistently |

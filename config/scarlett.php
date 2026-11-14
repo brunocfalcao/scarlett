@@ -10,6 +10,8 @@ use Scarlett\Policies\RetryPolicy;
 return [
     'queue' => env('SCARLETT_QUEUE', 'scarlett'),
     'connection' => env('SCARLETT_QUEUE_CONNECTION'),
+    // Opt in only when the default database connection needs no session-local state.
+    'release_database_connection' => env('SCARLETT_RELEASE_DATABASE_CONNECTION', false),
     // Worker timeout must be shorter than the lease; transport retry_after must exceed timeout.
     'lease_seconds' => 300,
     'worker_timeout' => 240,

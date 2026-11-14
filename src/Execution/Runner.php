@@ -26,6 +26,15 @@ final class Runner
 
     public function run(string $stepId, string $attempt): void
     {
+        try {
+            $this->execute($stepId, $attempt);
+        } finally {
+            app(ConnectionRelease::class)->release();
+        }
+    }
+
+    private function execute(string $stepId, string $attempt): void
+    {
         $record = $this->engine->claim($stepId, $attempt);
         if ($record === null) {
             return;
@@ -67,6 +76,7 @@ final class Runner
                 $result = $decision?->result;
                 $state = $decision?->state ?? Completed::class;
                 if ($decision === null) {
+                    $context->releaseDatabaseConnection();
                     $result = $this->invoker->handle($step, $inputs, $context);
                     if ($result instanceof Decision && $result->children !== null) {
                         $this->engine->decide($stepId, $attempt, $result);
@@ -122,6 +132,7 @@ final class Runner
             if (! $context->isCurrent()) {
                 return;
             }
+            $context->releaseDatabaseConnection();
             $verified = $step->verify($context, $result);
         } catch (Throwable $exception) {
             $this->engine->decide($stepId, $attempt, Decision::retry(), $exception->getMessage(), verification: true);

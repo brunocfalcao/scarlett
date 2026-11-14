@@ -48,6 +48,12 @@ final readonly class Context
         return app(Engine::class)->heartbeat($this->stepId, $this->attempt);
     }
 
+    /** Optional boundary after preparing inputs and before a long external call. */
+    public function releaseDatabaseConnection(): bool
+    {
+        return app(ConnectionRelease::class)->release();
+    }
+
     public function isCurrent(): bool
     {
         if ($this->failureId !== null) {

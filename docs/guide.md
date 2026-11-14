@@ -65,7 +65,7 @@ Add this repository entry to your application's existing `composer.json`
 Then install the tagged stable release:
 
 ```sh
-composer require brunocfalcao/scarlett:^2.1
+composer require brunocfalcao/scarlett:^2.2
 php artisan migrate
 ```
 
@@ -379,6 +379,14 @@ missing records, invalid service bindings and PHP programming errors by default)
 A preparation handler cannot supply a successful result without a step instance.
 
 </details>
+
+## Database connection lifetime
+
+For long-running actions, v2.2.0 adds opt-in connection release through
+`SCARLETT_RELEASE_DATABASE_CONNECTION=true`. Existing steps and workflow signatures
+remain valid. Active transactions and in-memory SQLite are preserved. Queries
+reconnect as needed; this does not remove the database availability requirement.
+See [automatic boundaries, explicit release and consumer constraints](database-connections.md).
 
 ## Operate in Laravel
 

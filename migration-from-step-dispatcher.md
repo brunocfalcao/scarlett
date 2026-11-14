@@ -7,7 +7,7 @@ serialized jobs are compatible. Do not point Scarlett at dispatcher tables.
 ## Install and upgrade the package
 
 Follow the [installation guide](README.md#install) and choose the package revision
-you will validate. Use the tagged `^2.1` Composer constraint for this API.
+you will validate. Use the tagged `^2.2` Composer constraint for this API.
 Existing Scarlett 1.x consumers should follow the
 [upgrade checklist](docs/runtime-children.md#upgrade-from-scarlett-1x). A Composer
 path repository with symlinking is optional for local package development; its path depends on your workspace. A remote install
@@ -352,3 +352,20 @@ retain bounded retries. Each retry must acquire admission again.
 See [the API, examples, migration and rollout rules](docs/throttling.md). Keep AI
 calls out of constructors, use one intended call per admitted action, and preserve
 remote-effect idempotency. Existing custom throttlers need no conversion.
+
+## Optional connection release (v2.2.0)
+
+No schema migration or workflow/step signature conversion is required for this
+feature. Set `scarlett.release_database_connection` through the documented
+`SCARLETT_RELEASE_DATABASE_CONNECTION` mapping to opt in. Existing consumers
+retain their current connection lifetime by default.
+
+Review session-local database state and live cursors before enabling. If an action
+queries the database before an API call, use `Context::releaseDatabaseConnection(): bool`
+or the shared `Execution\ConnectionRelease::release(): bool` helper after request
+preparation. Ordinary queries reconnect; guarded writes retain their transaction.
+Do not replace `whileCurrent()` with a release call or suppress heartbeat needs.
+
+Consumer acceptance must cover actual database/queue routing, temporary/session
+state, lazy input queries, long calls, cancellation, verification retries and
+terminal handlers with the option enabled. See [the complete connection contract](docs/database-connections.md).
