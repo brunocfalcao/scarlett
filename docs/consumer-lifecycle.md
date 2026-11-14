@@ -404,6 +404,13 @@ and comments only; it adds no migration or runtime API. Version 2.1.0 adds
 `000009_add_throttle_reservations`, with shared quota storage and per-attempt
 receipts. See [throttling rollout and rollback](throttling.md).
 
+Version 2.3.0 adds `2026_11_14_193248_add_workflow_and_step_descriptions`, with
+nullable workflow/step labels and step signature/argument snapshots. Existing
+definitions need no conversion, and slot replacement preserves the labels on
+the returned definition. Workflow results remain absent; returns belong to steps.
+Rollback discards only the newly added labels and diagnostics, leaving existing
+inputs, results and execution state intact. See [the recording contract](guide.md#describe-workflows-and-inspect-step-invocations).
+
 Stop admission/workers and drain or deliberately cancel outstanding work before
 rolling back code/schema. Rolling back these migrations removes slot pointers
 and failure history; it is not a live feature toggle. Preserve required history

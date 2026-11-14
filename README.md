@@ -24,7 +24,7 @@ flowchart LR
     Slug --> Result["hello-laravel"]
 ```
 
-Version 2.2.1 fixes concurrent SQLite recovery and expands regression coverage.
+Version 2.3.0 adds workflow/step labels and automatic step argument recording.
 See the [changelog](CHANGELOG.md) for upgrade details.
 
 ## Install
@@ -42,7 +42,7 @@ Add this entry to your application's `composer.json` repositories:
 ```
 
 ```sh
-composer require brunocfalcao/scarlett:^2.2
+composer require brunocfalcao/scarlett:^2.3
 php artisan migrate
 ```
 
@@ -117,6 +117,35 @@ $workflow = Scarlett::start(new Workflow([
 `title` returns **Hello Laravel**. Scarlett saves it, then constructs `slug` with
 that result. `slug` returns **hello-laravel**. You keep `$workflow->id` to track it.
 Inputs can also bind constructor parameters; future steps are not constructed early.
+
+## Describe workflows and steps
+
+`Workflow` and `Node` accept optional named `title`, `description`, and `canonical`
+arguments. A canonical is a reusable business identifier, such as `document.generate`;
+it does not replace the workflow UUID or the node key and does not deduplicate runs.
+Existing definitions and step classes require no changes. Run `php artisan migrate`
+after upgrading to install the additive nullable columns before starting workers.
+
+Scarlett automatically stores each step's constructor and `handle` parameter names,
+positions, types, optional/variadic flags, context injection, and declared return type in
+`StepRecord::signature`. Admission does not instantiate the step or evaluate object
+defaults. `StepRecord::arguments` records the actual arguments immediately before each
+invocation, grouped under `constructor` and `handle` with the owning attempt UUID.
+Defaults are evaluated once; prerequisite bindings contain their resolved values.
+
+Value entries contain a versioned `payload` readable with `PayloadCodec::decode`.
+Services and engine context are recorded as descriptors, never serialized internals.
+Values the codec cannot persist are marked `unavailable` with their PHP type; they do
+not require changes to an existing step. Argument payloads contain business data and
+follow the workflow's existing retention lifecycle. Capturing a new action attempt
+replaces the snapshot; verification retries preserve the action's snapshot. This records the
+latest invocation, not a history of all attempts. Old rows retain null signatures.
+
+Returns already persist automatically in `StepRecord::result`, decoded with
+`PayloadCodec::decode`; `has_result` distinguishes a saved null from no result.
+The existing rules for unsupported return values still apply. Workflows expose no
+return payload. No extra result-logging code belongs in step classes.
+See [record shapes and lifecycle limits](docs/guide.md#describe-workflows-and-inspect-step-invocations).
 
 ## 3. Run the queue
 

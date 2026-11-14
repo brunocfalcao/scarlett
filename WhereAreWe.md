@@ -1,5 +1,45 @@
 # Current state — 2026-11-14
 
+## v2.3.0 labels and invocation diagnostics — 2026-11-14
+
+Workflows and nodes accept optional title, description and canonical labels.
+UUIDs and graph keys retain their identity rules. Step signatures are reflected
+without business construction; actual constructor/handler arguments are captured
+under current-attempt ownership. Existing step classes need no conversion.
+Results remain on individual steps, with no workflow-level result payload.
+
+Snapshots describe the latest captured action attempt; verification preserves
+that action's arguments. Services/context use descriptors and unencodable values
+are explicitly unavailable. Mappers may run during capture and must remain free
+of business side effects. See [record shapes and limits](docs/guide.md#describe-workflows-and-inspect-step-invocations).
+
+The eleventh migration adds only nullable labels/diagnostics. All ten published
+migrations retain their bytes. Consumers must run ordinary migrations before
+updated workers; rollback discards the new diagnostics, preserving prior engine
+inputs, results and execution state. No consumer database was migrated here.
+
+Fresh full package verification on PHP 8.5.12:
+
+| Database | Passed tests | Assertions |
+| --- | ---: | ---: |
+| SQLite | 542 | 4,981 |
+| MySQL | 542 | 4,988 |
+| PostgreSQL | 542 | 4,986 |
+
+Nineteen metadata cases cover optional labels, identity, late defaults,
+context/services/variadics, resolved/mapped/falsey values, retries, skips, stale
+attempts, unsupported defaults and data-preserving migration lifecycle.
+Each full lane includes the existing real queue and contention checks.
+The reference host passes **58 tests / 425 assertions** against the exact package
+symlink, using its exhaustive no-Git TIA bootstrap exception. All package lanes
+complete without skips. Publication and exact-SHA CI are recorded separately.
+
+Pint, Composer strict validation and local documentation links pass. No configured
+static analyzer exists. Browser, provider, consumer-production and throughput
+acceptance are not implied. Source publication is separate from deployment;
+the [v2.3.0 Release](https://github.com/brunocfalcao/scarlett/releases/tag/v2.3.0)
+and canonical implementation record carry publication/CI evidence.
+
 ## v2.2.1 recovery and expanded coverage — 2026-11-14
 
 Concurrent SQLite recovery now closes candidate read cursors before taking write

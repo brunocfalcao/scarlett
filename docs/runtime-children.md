@@ -19,6 +19,9 @@ Scarlett\Execution\Decision::children(
 from `handle()`, `before(Context): ?Decision`, or
 `onException(Throwable, Context): Decision`. Build definitions, never child step
 instances. Scarlett restores inputs and constructs each child only when claimed.
+Optional node `title`, `description` and `canonical` labels survive key
+qualification. Each child gets its own reflected signature and argument snapshot;
+these labels do not change identity, deduplication or result selection.
 The runner recognizes this child directive returned by `handle()`; other handle
 return values retain their existing result semantics.
 

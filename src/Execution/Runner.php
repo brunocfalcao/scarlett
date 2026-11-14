@@ -46,7 +46,8 @@ final class Runner
             if (! $context->isCurrent()) {
                 return;
             }
-            $step = $this->invoker->construct($record->class, $inputs, $context);
+            $recorder = $record->action_completed ? null : app(Signature::class)->recorder($record, $context);
+            $step = $this->invoker->construct($record->class, $inputs, $context, $recorder);
             if (! $context->isCurrent()) {
                 return;
             }
@@ -76,8 +77,7 @@ final class Runner
                 $result = $decision?->result;
                 $state = $decision?->state ?? Completed::class;
                 if ($decision === null) {
-                    $context->releaseDatabaseConnection();
-                    $result = $this->invoker->handle($step, $inputs, $context);
+                    $result = $this->invoker->handle($step, $inputs, $context, $recorder);
                     if ($result instanceof Decision && $result->children !== null) {
                         $this->engine->decide($stepId, $attempt, $result);
 

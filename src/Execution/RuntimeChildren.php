@@ -83,6 +83,7 @@ final class RuntimeChildren
                 rescues: $node->rescues === null ? null : $this->key($owner, $node->rescues),
                 priority: $priority, queue: $queue, connection: $connection,
                 notBefore: $node->notBefore, execution: $node->execution,
+                title: $node->title, description: $node->description, canonical: $node->canonical,
             );
         }
 

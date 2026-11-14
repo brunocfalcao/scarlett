@@ -27,6 +27,9 @@ final readonly class Node
         public ?string $connection = null,
         public ?DateTimeInterface $notBefore = null,
         public ?ExecutionOptions $execution = null,
+        public ?string $title = null,
+        public ?string $description = null,
+        public ?string $canonical = null,
     ) {}
 
     /** A node override replaces the class options object; unset fields fall back to package defaults. */

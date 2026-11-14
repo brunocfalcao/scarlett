@@ -86,6 +86,9 @@ final class Engine
                 'subject_type' => $definition->subjectType,
                 'subject_id' => $definition->subjectId,
                 'metadata' => $definition->metadata,
+                'title' => $definition->title,
+                'description' => $definition->description,
+                'canonical' => $definition->canonical,
                 'status' => $control->cooldown ? 'held' : 'running',
                 'started_at' => $control->cooldown ? null : now(),
             ]);

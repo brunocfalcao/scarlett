@@ -46,7 +46,8 @@ final class WorkflowSlots
                     || ($definition->subjectId !== null && $definition->subjectId !== $slot->subjectId)) {
                     throw new InvalidArgumentException('Replacement workflow subject must match its slot.');
                 }
-                $workflow = app(Engine::class)->start(new Workflow($definition->nodes, $slot->subjectType, $slot->subjectId, $definition->metadata));
+                $workflow = app(Engine::class)->start(new Workflow($definition->nodes, $slot->subjectType, $slot->subjectId, $definition->metadata,
+                    title: $definition->title, description: $definition->description, canonical: $definition->canonical));
                 DB::table('scarlett_subject_slots')->where('id', $slot->id())->update(['workflow_id' => $workflow->id]);
 
                 return $workflow;

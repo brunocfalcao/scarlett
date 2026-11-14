@@ -21,19 +21,29 @@ use Scarlett\Step;
  */
 final class Invoker
 {
-    public function construct(string $class, array $inputs, ?Context $context = null): Step
+    public function construct(string $class, array $inputs, ?Context $context = null, ?callable $record = null): Step
     {
         $reflection = new ReflectionClass($class);
         $constructor = $reflection->getConstructor();
 
-        return new $class(...($constructor ? $this->arguments($constructor, $inputs, $context) : []));
+        $arguments = $constructor ? $this->arguments($constructor, $inputs, $context) : [];
+        if ($record !== null) {
+            $record($constructor, $arguments);
+        }
+
+        return new $class(...$arguments);
     }
 
-    public function handle(Step $step, array $inputs, ?Context $context = null): mixed
+    public function handle(Step $step, array $inputs, ?Context $context = null, ?callable $record = null): mixed
     {
         $method = new ReflectionMethod($step, 'handle');
 
-        return $step->handle(...$this->arguments($method, $inputs, $context));
+        $arguments = $this->arguments($method, $inputs, $context);
+        if ($record !== null) {
+            $record($method, $arguments);
+        }
+
+        return $step->handle(...$arguments);
     }
 
     public static function isContext(ReflectionParameter $parameter): bool

@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.3.0 — 2026-11-14
+
+### Added
+
+- Optional `title`, `description` and `canonical` labels on workflow and node definitions, preserved through slot replacement and runtime child qualification. Canonicals are reusable labels; UUIDs and node keys retain their existing identity rules.
+- Automatic constructor/handler signature descriptions and actual argument snapshots on step records, without changing existing step classes. Record resolved inputs and defaults, use descriptors for services/context, and mark values that cannot be encoded as unavailable.
+- Fence argument writes by the current attempt and lease. Capturing a new action attempt replaces the snapshot; verification retries retain the completed action's arguments. Return payloads remain on individual steps; workflows expose no result payload.
+
+### Upgrade
+
+- Run ordinary `php artisan migrate` before starting updated workers. The additive `2026_11_14_193248_add_workflow_and_step_descriptions.php` migration adds nullable labels and step diagnostics; all ten previously published migrations remain unchanged.
+- Existing definitions and step classes need no conversion. Existing rows retain null declaration snapshots. Argument snapshots contain business data and follow existing history retention. See [the recorded metadata contract](docs/guide.md#describe-workflows-and-inspect-step-invocations).
+
+### Tests
+
+- Add 19 regression cases covering labels and identity, reflection/defaults, context/services/variadics, resolved and mapped values, falsey results, retries, skipped actions, stale attempts, non-JSON defaults, and fresh/upgrade/repeat/rollback migration safety.
+
 ## 2.2.1 — 2026-11-14
 
 ### Fixed

@@ -65,7 +65,7 @@ Add this repository entry to your application's existing `composer.json`
 Then install the tagged stable release:
 
 ```sh
-composer require brunocfalcao/scarlett:^2.2
+composer require brunocfalcao/scarlett:^2.3
 php artisan migrate
 ```
 
@@ -290,6 +290,62 @@ backups discovered during execution. A parent returns one complete plan; it wait
 for the children and then verifies the effective result. Incremental appending and
 separate table-prefix execution scopes remain deferred.
 Recurring schedules and calendar windows belong in your Laravel application.
+
+## Describe workflows and inspect step invocations
+
+Both `Workflow` and `Node` accept optional named `title`, `description` and
+`canonical` arguments. They default to null and require no changes to existing
+step classes. Canonicals are reusable business labels, not uniqueness constraints;
+workflow/step UUIDs and node keys keep their current roles. Slot replacement
+preserves the new workflow labels. Runtime children retain their labels even when
+Scarlett qualifies their node keys.
+
+```php
+$definition = new Workflow([
+    new Node('title', NormalizeTitle::class, inputs: ['title' => ' Hello '],
+        title: 'Normalize title', description: 'Trim surrounding whitespace.',
+        canonical: 'document.title.normalize'),
+], title: 'Prepare document', canonical: 'document.prepare');
+```
+
+Read the labels from `WorkflowRecord` and `StepRecord`. Each newly admitted step
+also has a `signature` array with `constructor` and `handle` entries. Each entry
+contains `parameters`, keyed by name, and nullable `return_type`. Parameter fields
+are `position` (zero-based), nullable `type`, `optional`, `variadic` and `context`.
+Reflection records declarations without constructing steps or evaluating defaults.
+Use `position` for ordering; JSON object key order is not a database contract.
+
+Immediately before construction or `handle()`, Scarlett stores the actual argument
+values in `StepRecord::arguments`. Its `attempt` is the owning attempt UUID;
+`constructor` and `handle` contain parameter-name maps. Variadics are grouped into
+one list. Defaults are evaluated once per invocation, and `FromResult` values are
+resolved before capture. Each parameter entry is one of:
+
+| Kind | Recorded fields |
+| --- | --- |
+| `value` | `payload`: versioned data readable with `PayloadCodec::decode()` |
+| `context` | Descriptor only; no engine context internals |
+| `service` | `class`: requested service binding; no service internals |
+| `unavailable` | `type`: PHP type when codec/JSON encoding cannot represent the value |
+
+Snapshots are diagnostics, not replay inputs or proof that an invocation finished.
+They contain business data and follow existing history retention. Payload mappers
+may run additionally during capture and must remain free of business side effects.
+A new action attempt replaces the snapshot when its arguments are recorded;
+verification retries preserve the completed action's snapshot. When `before()`
+skips the action, there is no `handle` entry. Cancelled, expired or replaced attempts cannot write a
+snapshot. This is the latest captured action attempt, not a per-attempt history.
+
+Return values retain the existing `StepRecord::result` encoding and `has_result`
+flag, including saved null, false, zero and empty values. Workflows have no return
+payload. Unsupported return values still follow the existing persistence failure
+rules; the diagnostic fallback does not change those rules.
+
+Upgrade with ordinary `php artisan migrate` before running updated workers.
+The additive v2.3 migration leaves existing rows' signatures and labels null;
+executing an old pending step can capture its arguments without backfilling its
+declaration. Rollback removes these new diagnostics and labels, preserving the
+existing inputs, results and execution state.
 
 ## Pass Laravel data safely
 

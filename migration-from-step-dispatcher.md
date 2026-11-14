@@ -7,7 +7,7 @@ serialized jobs are compatible. Do not point Scarlett at dispatcher tables.
 ## Install and upgrade the package
 
 Follow the [installation guide](README.md#install) and choose the package revision
-you will validate. Use the tagged `^2.2` Composer constraint for this API.
+you will validate. Use the tagged `^2.3` Composer constraint for this API.
 Existing Scarlett 1.x consumers should follow the
 [upgrade checklist](docs/runtime-children.md#upgrade-from-scarlett-1x). A Composer
 path repository with symlinking is optional for local package development; its path depends on your workspace. A remote install
@@ -34,7 +34,9 @@ execution settings, scheduling and step timestamps. The subsequent additive
 [index coverage and large-table rollout](docs/database-indexes.md).
 `2026_11_14_000009_add_throttle_reservations.php` adds shared quota storage and
 nullable attempt receipts in v2.1.0; see [throttling](docs/throttling.md).
-Fresh installations run all ten; existing installations run only missing files. Repeated `migrate` is a
+`2026_11_14_193248_add_workflow_and_step_descriptions.php` adds nullable workflow/step
+labels and step signature/argument diagnostics in v2.3.0.
+Fresh installations run all eleven; existing installations run only missing files. Repeated `migrate` is a
 no-op. Legacy Scarlett rows with no execution snapshot use configured defaults.
 New rows retain their admitted execution settings across deployments. Runtime
 children require `v2.0.0` or later; `v1.0.0` does not contain this API.
@@ -66,7 +68,9 @@ on its actual database and queue; package tests do not replace domain acceptance
 | Constructor arguments | Named `Node::inputs`; constructor and action may both use them |
 | Execution identity / attempt snapshot | Type-hint `Execution\Context` in the constructor or `handle`; the engine supplies it after claim, never through persisted inputs |
 | `Step::create`, indexes and blocks | Complete `Definition\Workflow` of `Node` definitions; `Engine::start()` returns the workflow record |
-| Canonical step identity | `Node::key`; stable within the workflow |
+| Graph step identity | `Node::key`; stable within the workflow |
+| Canonical, title and description | Optional `Workflow`/`Node` arguments; reusable labels, separate from UUIDs and graph keys |
+| Recorded signature and arguments | Automatic `StepRecord::signature` and `arguments`; step return payload remains `result` with `has_result`; no workflow result |
 | Sequential / parallel ordering | Increasing `stage` values / same-stage siblings |
 | Parent and children | `Node::parent` for predefined graphs; `Decision::children()` for one atomic runtime plan |
 | Prior outputs | `Inputs\FromResult`, resolved only when eligible; do not construct successor jobs upfront |
@@ -369,6 +373,24 @@ Do not replace `whileCurrent()` with a release call or suppress heartbeat needs.
 Consumer acceptance must cover actual database/queue routing, temporary/session
 state, lazy input queries, long calls, cancellation, verification retries and
 terminal handlers with the option enabled. See [the complete connection contract](docs/database-connections.md).
+
+## Labels and step diagnostics (v2.3.0)
+
+Migrate before starting updated workers. The new nullable columns preserve
+existing inputs, results, status and identifiers; no step-class or definition
+conversion is required. Old declaration snapshots remain null. Optional
+`title`, `description` and `canonical` values describe workflows and nodes without
+changing uniqueness. Existing canonicals can map to these labels while graph
+dependencies continue to reference `Node::key`.
+
+Constructor and `handle` signatures are captured at admission; resolved arguments
+are captured immediately before invocation, under current-attempt ownership.
+Services/context use descriptors; unsupported diagnostic values are marked
+unavailable. Existing return-payload encoding rules remain unchanged. Results
+belong only to individual steps; there is no workflow result selection or aggregate.
+Review [record shapes and retention](docs/guide.md#describe-workflows-and-inspect-step-invocations)
+when adapting diagnostic readers. Rollback removes the new labels and snapshots,
+so preserve any required diagnostic history before downgrading.
 
 ## Concurrent recovery fix (v2.2.1)
 

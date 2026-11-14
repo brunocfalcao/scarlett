@@ -26,6 +26,11 @@ flowchart LR
 
 `Workflow::validate()` inspects signatures and relationships without constructing
 business steps. `NodeStore` snapshots execution settings and stores binding recipes.
+It also stores labels and reflected signatures. `Signature` records resolved
+constructor/handler arguments under the existing current-attempt guard. Capture
+adds a guarded write before each invocation; verification reconstruction leaves
+the action snapshot unchanged. The optional connection release happens after
+handler capture, so its database write does not reopen the connection before work.
 Stages create dependencies on all earlier siblings within the same parent/rescue
 group. `FromResult` supplies a value; it does not create a dependency itself.
 
@@ -54,6 +59,7 @@ must not cross those boundaries. See [connection lifetime](database-connections.
 | `Inputs`, `Contracts/PayloadMapper` | Versioned JSON and late bindings | No arbitrary object serialization; aliases remain readable for retained work |
 | `Execution/ConnectionRelease` | Opt-in default-connection lifetime | Release only outside transactions; preserve memory SQLite; next query reconnects |
 | `Execution/Invoker` | Typed constructor/handler calls | Explicit names, exact Context injection and strict PHP invocation |
+| `Execution/Signature` | Declaration metadata and actual argument diagnostics | No eager defaults; current-attempt writes; no service/context serialization; diagnostic encoding failure does not reject an otherwise valid argument |
 | `Engine`, `Execution/Context` | Claims, leases and guarded mutations | A current token, running phase and future lease are all required |
 | `Execution/Journal`, `States` | Transitions and durable diagnostics | State semantics drive dependency, recovery and retention consistently |
 | `Execution/Progression` | Sibling barriers and subtree settlement | Rescue success never erases the original failure |
@@ -121,8 +127,8 @@ Eight package tables serve different lifecycles:
 | Table | Stored responsibility |
 | --- | --- |
 | `scarlett_control` | Admission lock row and cooldown flag |
-| `scarlett_workflows` | Aggregate status, subject, metadata and lifecycle/archive times |
-| `scarlett_steps` | Definition, bindings, result, state, latest attempt, budgets, routing, timing and child handoff |
+| `scarlett_workflows` | Aggregate status, subject, metadata, optional labels and lifecycle/archive times; no result payload |
+| `scarlett_steps` | Definition, labels, signature, argument snapshot, bindings, result, state, latest attempt, budgets, routing, timing and child handoff |
 | `scarlett_deliveries` | Durable step transport intents and publication leases |
 | `scarlett_history` | Append-only transition events with attempt, time and reason |
 | `scarlett_subject_slots` | Exact hashed subject/slot identity and current workflow pointer |
@@ -140,7 +146,7 @@ removal additionally removes its slots.
 than a caller-supplied cutoff. Both recheck live state under the workflow lock;
 unfinished failure hooks protect the workflow from ordinary cleanup.
 
-Ten ordered package migrations define this schema. Published migration files
+Eleven ordered package migrations define this schema. Published migration files
 are immutable, including comments. Add a new migration for schema changes and
 verify fresh install, retained-data upgrade, repeat migration and rollback on
 SQLite, MySQL and PostgreSQL. See [query indexes](database-indexes.md) for current

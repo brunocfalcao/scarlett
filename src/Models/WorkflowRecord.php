@@ -19,7 +19,7 @@ class WorkflowRecord extends Model
 
     protected $keyType = 'string';
 
-    protected $fillable = ['id', 'status', 'started_at', 'finished_at', 'archived_at', 'subject_type', 'subject_id', 'metadata'];
+    protected $fillable = ['id', 'status', 'started_at', 'finished_at', 'archived_at', 'subject_type', 'subject_id', 'metadata', 'title', 'description', 'canonical'];
 
     protected function casts(): array
     {

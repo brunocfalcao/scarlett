@@ -21,6 +21,9 @@ final readonly class Workflow
         public ?string $subjectType = null,
         public ?string $subjectId = null,
         public array $metadata = [],
+        public ?string $title = null,
+        public ?string $description = null,
+        public ?string $canonical = null,
     ) {}
 
     public function validate(): void

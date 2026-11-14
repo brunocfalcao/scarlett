@@ -56,6 +56,11 @@ while the Laravel worker is idle, and it does not change queue polling.
 
 ## Release again after preparing an API request
 
+From v2.3.0, automatic handler-argument capture writes its diagnostics before
+the pre-action release. The action therefore starts after that connection boundary;
+capture does not immediately reopen it. Constructor capture and verification
+retain their existing preparation/release ordering.
+
 A query inside `handle()` reconnects. If it loads data before a long API request,
 release again at that boundary. The following step fragment uses Laravel's HTTP
 client and an application-owned `services.generator.url` configuration value:
