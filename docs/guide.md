@@ -545,6 +545,13 @@ hooks rather than directly mutating storage models.
   binary comparison. Additive migrations support scheduled dates beyond 2038;
   rollback refuses collisions or dates that cannot fit the older schema.
 
+## Query indexes and large tables
+
+Version 2.0.1 adds an automatically discovered migration for relationship, date,
+retention and subject-slot queries. See [the index inventory and rollout notes](database-indexes.md).
+Indexes do not make broad aggregate queries constant-time; validate representative
+workloads and apply consumer-owned retention before claiming capacity.
+
 ## Develop and test the package
 
 Run the **entire suite on each database** from the package checkout:

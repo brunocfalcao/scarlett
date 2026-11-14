@@ -30,7 +30,9 @@ execution settings, scheduling and step timestamps. The subsequent additive
 `2026_11_13_000005_create_subject_slots.php` adds current-workflow slots;
 `2026_11_13_000006_create_failure_executions.php` adds durable terminal handlers.
 `2026_11_14_000007_add_runtime_children.php` adds durable runtime-child handoff fields.
-Fresh installations run all eight; existing installations run only missing files. Repeated `migrate` is a
+`2026_11_14_000008_add_query_indexes.php` adds query indexes in v2.0.1; see
+[index coverage and large-table rollout](docs/database-indexes.md).
+Fresh installations run all nine; existing installations run only missing files. Repeated `migrate` is a
 no-op. Legacy Scarlett rows with no execution snapshot use configured defaults.
 New rows retain their admitted execution settings across deployments. Runtime
 children require `v2.0.0` or later; `v1.0.0` does not contain this API.

@@ -43,6 +43,9 @@ composer require brunocfalcao/scarlett:^2.0
 php artisan migrate
 ```
 
+Existing installations: update the package and run `php artisan migrate`.
+[Query indexes and large-table upgrades](docs/database-indexes.md).
+
 ## 1. Write your steps
 
 Create these classes in `app/Workflows/Steps/`:

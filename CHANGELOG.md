@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.1 — 2026-11-14
+
+### Performance
+
+- Add eight query indexes for workflow creation/retention, parent and rescue relationships, step deliveries/history, workflow failure handlers and subject-slot lookup. No public API or stored record changes.
+- Preserve unrestricted subject-slot text with database-specific indexes: bounded MySQL prefixes, PostgreSQL equality hashing and SQLite composite keys.
+
+### Upgrade
+
+- Run ordinary `php artisan migrate` after updating the package. The additive `2026_11_14_000008_add_query_indexes.php` migration preserves published migrations and existing data; rollback removes its indexes and preserves MySQL foreign-key support.
+- Index creation uses ordinary database DDL and may block writes while building on large tables. Schedule it through the application’s maintenance process. This release does not claim a 10M-row benchmark or remove aggregate-query costs. See [index coverage and rollout](docs/database-indexes.md).
+
 ## 2.0.0 — 2026-11-14
 
 ### Features
