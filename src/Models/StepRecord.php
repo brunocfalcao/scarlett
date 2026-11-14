@@ -7,6 +7,7 @@ namespace Scarlett\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Scarlett\Definition\ExecutionOptions;
+use Scarlett\Execution\ChildPhase;
 use Scarlett\States\StepState;
 use Spatie\ModelStates\HasStates;
 
@@ -33,6 +34,8 @@ class StepRecord extends Model
         'result',
         'has_result',
         'completion_state',
+        'child_phase',
+        'child_result_key',
         'priority',
         'queue',
         'connection',
@@ -54,6 +57,7 @@ class StepRecord extends Model
         return [
             'state' => StepState::class,
             'execution' => 'array',
+            'child_phase' => ChildPhase::class,
             'not_before' => 'immutable_datetime',
             'started_at' => 'immutable_datetime',
             'finished_at' => 'immutable_datetime',

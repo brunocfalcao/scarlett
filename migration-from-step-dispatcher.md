@@ -28,9 +28,13 @@ execution settings, scheduling and step timestamps. The subsequent additive
 `2026_11_13_000004_expand_scheduled_date_range.php` permits dates beyond 2038.
 `2026_11_13_000005_create_subject_slots.php` adds current-workflow slots;
 `2026_11_13_000006_create_failure_executions.php` adds durable terminal handlers.
-Fresh installations run all seven; existing installations run only missing files. Repeated `migrate` is a
+`2026_11_14_000007_add_runtime_children.php` adds durable runtime-child handoff fields.
+Fresh installations run all eight; existing installations run only missing files. Repeated `migrate` is a
 no-op. Legacy Scarlett rows with no execution snapshot use configured defaults.
-New rows retain their admitted execution settings across deployments.
+New rows retain their admitted execution settings across deployments. Runtime
+children require a revision newer than `v1.0.0`; that tag does not contain this API.
+The runtime-child migration refuses rollback while any unfinished workflow uses
+its handoff fields. Drain work and stop workers before coordinated schema/code rollback.
 
 Pause admission and drain/stop old workers before updating package code and schema;
 apply migrations before starting workers that use new columns. No migration sends
@@ -59,7 +63,7 @@ on its actual database and queue; package tests do not replace domain acceptance
 | `Step::create`, indexes and blocks | Complete `Definition\Workflow` of `Node` definitions; `Engine::start()` returns the workflow record |
 | Canonical step identity | `Node::key`; stable within the workflow |
 | Sequential / parallel ordering | Increasing `stage` values / same-stage siblings |
-| Parent and children | `Node::parent`; all children declared before admission |
+| Parent and children | `Node::parent` for predefined graphs; `Decision::children()` for one atomic runtime plan |
 | Prior outputs | `Inputs\FromResult`, resolved only when eligible; do not construct successor jobs upfront |
 | Services / DTOs / enums / models | `Inputs\Service`, registered payload mappers, configured enum aliases, `ModelReference`; explicit snapshots remain arrays/DTOs |
 | `startOrSkip` / other preconditions | `before(Context): ?Decision` |
@@ -211,11 +215,15 @@ A consumer may distinguish workflow technical failure from its business status
    schedulers and jobs that create work. Record the graph, business side effects,
    ownership checks, retries, timeouts and cleanup rules. Preserve existing product
    behavior; changing engines does not require new user actions or business rules.
-2. **Predefine each graph.** Translate indexes, blocks and parent relationships
-   into nodes and stages. Move runtime child creation into the workflow definition.
-   If the graph depends on information available only during execution, redesign
-   that boundary explicitly; independent follow-up workflows are not equivalent
-   to children that an existing parent must await.
+2. **Translate graphs and runtime handoffs.** Use nodes and stages for fixed
+   indexes, blocks and parent relationships. For data-dependent work, return
+   `Decision::children($nodes, result: $summary)` from the running step. For a
+   replacement/backup child, use `resultFrom: 'backup'`; later steps can still read
+   the original parent's effective result. Nested children can hand off their own
+   plans. Remove consumer-side child-block deduplication and result-copying logic:
+   Scarlett owns those guarantees. Read the [runtime-child contract](docs/runtime-children.md)
+   before porting: one closed plan, local references, inherited routing, and parent
+   verification after children. Independent workflows do not replace awaited children.
 3. **Keep inputs late.** Pass identifiers, explicit bindings and supported
    snapshots. Reload current records at execution. Register mappers for objects
    persisted as inputs/results; do not instantiate successors or resolve their
@@ -313,7 +321,7 @@ revision and apply its migrations before starting updated workers.
 
 ## Boundaries to account for
 
-- Runtime addition of children and prefix-isolated engine tables remain deferred.
+- Incremental appending to an admitted child plan and prefix-isolated engine tables remain deferred. Atomic runtime child plans are supported; see [the API and limits](docs/runtime-children.md).
 - Step identities are exact and limited by `Node::MAX_KEY_LENGTH`; do not normalize
   case or merge distinct keys during migration.
 - Payload version 2 reads version 1 values and preserves named timezones for newly

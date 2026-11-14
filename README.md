@@ -202,7 +202,18 @@ php artisan scarlett:purge --days=30
 
 External effects must be **idempotent**: a worker can crash after an API call but
 before saving its result. Cancellation revokes ownership; it cannot undo that call.
-Define the whole workflow up front—adding children during execution is not supported.
+When work is discovered during execution, return a child plan (newer than `v1.0.0`):
+
+```php
+use Scarlett\Execution\Decision;
+
+return Decision::children([
+    new Node('backup', GenerateAnswer::class, inputs: ['candidate' => $nextModel]),
+], resultFrom: 'backup');
+```
+
+The parent waits, verifies the backup's result, then releases its successors.
+[Runtime children, fanout and guarantees](docs/runtime-children.md).
 
 ## More examples and reference
 

@@ -59,7 +59,7 @@ final class Progression
                         continue;
                     }
                     if ($children->every(fn ($child): bool => $child->state::phase() === Phase::Settled)) {
-                        $this->journal->conclude($step, $step->completion_state ?? Completed::class);
+                        $this->completeChildren($step, $steps);
                         $changed = true;
                     }
 
@@ -111,6 +111,29 @@ final class Progression
         } while ($changed);
         app(Coordinator::class)->advance($workflow, $steps);
         $this->aggregate($workflow, $steps);
+    }
+
+    /** Runtime parents verify the effective result after their child plan settles. */
+    private function completeChildren(StepRecord $step, Collection $steps): void
+    {
+        if ($step->child_phase !== ChildPhase::Waiting) {
+            $this->journal->conclude($step, $step->completion_state ?? Completed::class);
+
+            return;
+        }
+        if ($step->child_result_key !== null) {
+            $source = $steps->get($step->child_result_key);
+            if ($source === null || ! $source->has_result) {
+                $this->journal->transition($step, Failed::class, 'The selected child did not produce a result.', FailureCause::ChildResultMissing);
+
+                return;
+            }
+            $step->result = $source->result;
+            $step->has_result = true;
+        }
+        $step->child_phase = ChildPhase::Verifying;
+        $step->save();
+        $this->enqueue($step);
     }
 
     /** A waiting child can already be draining a failure further down the ordinary tree. */

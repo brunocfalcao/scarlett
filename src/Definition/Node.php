@@ -18,7 +18,7 @@ final readonly class Node
         public array $inputs = [],
         public ?string $parent = null,
         public ?string $rescues = null,
-        public int $priority = 0,
+        public ?int $priority = null,
         public ?string $queue = null,
         public ?string $connection = null,
         public ?DateTimeInterface $notBefore = null,

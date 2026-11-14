@@ -12,6 +12,7 @@ enum FailureCause: string
     case HandlerCrashed = 'handler_crashed';
     case InputResolution = 'input_resolution';
     case ChildFailed = 'child_failed';
+    case ChildResultMissing = 'child_result_missing';
     case ResultPersistence = 'result_persistence';
     case CompletionRejected = 'completion_rejected';
 }

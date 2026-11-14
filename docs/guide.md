@@ -283,7 +283,10 @@ exhausted resolvers settle as failed and may activate their own rescues.
 Durable `onFailure` hooks have separate child-before-parent ordering; rescue
 progression does not wait for those hooks to finish.
 
-Dynamic child creation and separate table-prefix execution scopes are deferred.
+Use [runtime child plans](runtime-children.md) for data-dependent fanout or nested
+backups discovered during execution. A parent returns one complete plan; it waits
+for the children and then verifies the effective result. Incremental appending and
+separate table-prefix execution scopes remain deferred.
 Recurring schedules and calendar windows belong in your Laravel application.
 
 ## Pass Laravel data safely

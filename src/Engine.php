@@ -5,34 +5,33 @@ declare(strict_types=1);
 namespace Scarlett;
 
 use Closure;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Scarlett\Definition\Subject;
 use Scarlett\Definition\SubjectSlot;
 use Scarlett\Definition\Workflow;
+use Scarlett\Execution\ChildPhase;
+use Scarlett\Execution\Completion;
 use Scarlett\Execution\Decision;
 use Scarlett\Execution\Delivery;
 use Scarlett\Execution\FailureCause;
 use Scarlett\Execution\Journal;
+use Scarlett\Execution\NodeStore;
 use Scarlett\Execution\Progression;
+use Scarlett\Execution\RuntimeChildren;
 use Scarlett\Failures\Coordinator;
-use Scarlett\Inputs\InputBindings;
 use Scarlett\Inputs\PayloadCodec;
 use Scarlett\Models\StepRecord;
 use Scarlett\Models\WorkflowRecord;
 use Scarlett\States\Cancelled;
 use Scarlett\States\Failed;
-use Scarlett\States\Pending;
 use Scarlett\States\Phase;
 use Scarlett\States\Running;
-use Scarlett\States\StateRegistry;
 use Scarlett\States\WaitingForChildren;
 
 final class Engine
 {
     public function __construct(
-        private InputBindings $bindings,
         private PayloadCodec $codec,
         private Progression $progression,
         private Journal $journal,
@@ -85,25 +84,7 @@ final class Engine
                 'status' => $control->cooldown ? 'held' : 'running',
                 'started_at' => $control->cooldown ? null : now(),
             ]);
-            foreach ($definition->nodes as $node) {
-                $dependencies = $definition->dependencies($node);
-                StepRecord::create([
-                    'id' => (string) Str::uuid(),
-                    'workflow_id' => $workflow->id,
-                    'key' => $node->key,
-                    'class' => $node->step,
-                    'state' => Pending::class,
-                    'dependencies' => $dependencies,
-                    'inputs' => $this->bindings->encode($node->inputs, array_merge($dependencies, array_filter([$node->parent, $node->rescues], fn (?string $key): bool => $key !== null))),
-                    'parent_key' => $node->parent,
-                    'rescues_key' => $node->rescues,
-                    'execution' => $node->executionOptions()->snapshot(),
-                    'not_before' => $node->notBefore === null ? null : Carbon::instance($node->notBefore)->setTimezone(config('app.timezone')),
-                    'priority' => $node->priority,
-                    'queue' => $node->queue ?? config('scarlett.queue'),
-                    'connection' => $node->connection ?? config('scarlett.connection'),
-                ]);
-            }
+            app(NodeStore::class)->store($workflow->id, $definition);
             $this->progression->advance($workflow);
             $this->delivery->afterCommit($workflow->id);
 
@@ -184,15 +165,8 @@ final class Engine
             if (! $this->owns($step, $attempt)) {
                 return false;
             }
-            if (! in_array($completionState, app(StateRegistry::class)->classes(), true) || ! $completionState::satisfiesDependency() || $completionState::skipsChildren()) {
-                throw new \InvalidArgumentException('An acceptable result requires a registered successful state.');
-            }
-            $from = $step->workflow->steps()->where('parent_key', $step->key)->exists() ? WaitingForChildren::class : Running::class;
-            $reachable = collect(app(StateRegistry::class)->transitions())
-                ->contains(fn (array $transition): bool => $transition[0] === $from && $transition[1] === $completionState);
-            if (! $reachable) {
-                throw new \InvalidArgumentException("Register the {$from} -> {$completionState} transition in scarlett.transitions.");
-            }
+            $from = $step->workflow->steps()->where('parent_key', $step->key)->lockForUpdate()->first() !== null ? WaitingForChildren::class : Running::class;
+            app(Completion::class)->validate($completionState, $from);
             $step->update(['result' => $payload, 'has_result' => true, 'action_completed' => true, 'completion_state' => $completionState]);
 
             return true;
@@ -205,7 +179,8 @@ final class Engine
             if (! $this->owns($step, $attempt) || ! $step->action_completed) {
                 return false;
             }
-            $hasChildren = $step->workflow->steps()->where('parent_key', $step->key)->exists();
+            $hasChildren = $step->child_phase !== ChildPhase::Verifying
+                && $step->workflow->steps()->where('parent_key', $step->key)->lockForUpdate()->first() !== null;
             $step->update(['lease_until' => null]);
             $this->journal->conclude($step, $hasChildren ? WaitingForChildren::class : $step->completion_state);
 
@@ -218,6 +193,14 @@ final class Engine
         return (bool) $this->mutate($stepId, function (StepRecord $step) use ($attempt, $decision, $error, $verification, $cause): bool {
             if (! $this->owns($step, $attempt)) {
                 return false;
+            }
+            if ($decision->children !== null) {
+                if ($verification || $step->action_completed) {
+                    throw new \InvalidArgumentException('Children can only be handed off before the action is persisted.');
+                }
+                app(RuntimeChildren::class)->admit($step, $decision);
+
+                return true;
             }
             $error = $decision->reason ?? $error;
             $step->error = $error;

@@ -59,6 +59,7 @@ final class StateRegistry
         $transitions = [
             [Pending::class, Queued::class], [Pending::class, Skipped::class], [Queued::class, Skipped::class], [Pending::class, Cancelled::class],
             [Queued::class, Running::class], [Queued::class, Cancelled::class],
+            [WaitingForChildren::class, Queued::class],
             [Running::class, Queued::class], [Running::class, WaitingForChildren::class],
         ];
         foreach ([Running::class, WaitingForChildren::class] as $from) {

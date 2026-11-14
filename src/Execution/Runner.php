@@ -64,6 +64,11 @@ final class Runner
                 $state = $decision?->state ?? Completed::class;
                 if ($decision === null) {
                     $result = $this->invoker->handle($step, $inputs, $context);
+                    if ($result instanceof Decision && $result->children !== null) {
+                        $this->engine->decide($stepId, $attempt, $result);
+
+                        return;
+                    }
                 }
             }
         } catch (Throwable $exception) {
@@ -76,8 +81,8 @@ final class Runner
                     $step !== null => $step->onException($exception, $context),
                     default => app(config('scarlett.input_exception_handler'))->decide($exception, $context),
                 };
-                if ($step === null && $decision->producesResult) {
-                    throw new \InvalidArgumentException('Input exception handlers cannot complete an unconstructed step.');
+                if ($step === null && ($decision->producesResult || $decision->children !== null)) {
+                    throw new \InvalidArgumentException('Input exception handlers cannot complete or expand an unconstructed step.');
                 }
                 if ($decision->producesResult) {
                     $result = $decision->result;

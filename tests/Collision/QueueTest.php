@@ -189,3 +189,19 @@ it('recovers terminal failure effects after real action or handler worker timeou
     }
     expect($flow->fresh()->status)->toBe('failed');
 })->with(['slow-action', 'slow-hook']);
+
+it('executes nested runtime backups and parent verification through an independent queue worker', function () {
+    config(['queue.default' => 'database', 'queue.connections.database.connection' => Environment::driver()]);
+    $flow = app(Engine::class)->start(new Workflow([
+        new Node('parent', Scarlett\Tests\Fixtures\RuntimeParent::class, inputs: ['depth' => 3]),
+        new Node('after', EchoStep::class, stage: 1, inputs: ['value' => new FromResult('parent')]),
+    ]));
+    expect(statesOf($flow->id))->toBe(['after' => 'pending', 'parent' => 'queued']);
+    $worker = new Process([PHP_BINARY, __DIR__.'/queue-worker.php']);
+    $worker->setTimeout(20);
+    $worker->mustRun();
+    expect($flow->fresh()->status)->toBe('completed');
+    expect($flow->steps()->count())->toBe(5);
+    expect($flow->steps()->get()->map(fn ($s) => (string) $s->state)->unique()->values()->all())->toBe(['completed']);
+    expect(app(PayloadCodec::class)->decode($flow->steps()->where('key', 'after')->sole()->result))->toBe('backup result');
+});

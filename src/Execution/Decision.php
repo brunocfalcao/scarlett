@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Scarlett\Execution;
 
+use Scarlett\Definition\ChildPlan;
 use Scarlett\States\Completed;
 use Scarlett\States\Failed;
 use Scarlett\States\Skipped;
@@ -18,11 +19,18 @@ final readonly class Decision
         public bool $throttled = false,
         public bool $producesResult = false,
         public ?string $reason = null,
+        public ?ChildPlan $children = null,
     ) {}
 
     public static function complete(mixed $result = null, string $state = Completed::class): self
     {
         return new self($state, $result, producesResult: true);
+    }
+
+    /** Return a complete child plan from handle(), before(), or onException(). */
+    public static function children(array $nodes, mixed $result = null, ?string $resultFrom = null, string $state = Completed::class): self
+    {
+        return new self($state, $result, children: new ChildPlan($nodes, $resultFrom));
     }
 
     public static function skip(): self

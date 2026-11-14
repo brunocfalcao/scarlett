@@ -131,6 +131,7 @@ $result = match ($arguments['operation']) {
 
         return true;
     })(),
+    'children' => $engine->decide($arguments['step'], $arguments['attempt'], Decision::children([new Node('child', EchoStep::class)])),
     'claim' => $engine->claim($arguments['step'], $arguments['attempt']) !== null,
     'revoke' => $engine->cancelWorkflow($arguments['workflow']),
     'write' => $engine->whileCurrent($arguments['step'], $arguments['attempt'], fn () => DB::table('consumer_records')->where('id', $arguments['record'])->increment('writes')),
