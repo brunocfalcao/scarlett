@@ -17,6 +17,8 @@ return [
     'transaction_attempts' => 5,
     // A zero throttle requests this wait; explicit positive delays remain unchanged.
     'minimum_throttle_seconds' => 1,
+    // Named rolling-window quotas; steps explicitly choose a policy and sharing key.
+    'throttles' => [],
     'retry' => ['attempts' => 3, 'backoff_seconds' => [5, 30, 120]],
     'verification' => ['attempts' => 3, 'backoff_seconds' => [5, 30, 120]],
     'retry_policy' => RetryPolicy::class,

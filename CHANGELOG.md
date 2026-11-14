@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.1.0 — 2026-11-14
+
+### Added
+
+- Named, database-backed rolling-window rate limits with explicit sharing keys, atomic reservations and idempotent attempt receipts. Throttle waits remain separate from bounded action retries.
+- Additive throttle schema and optional `scarlett:prune-throttles` housekeeping, with active-window rollback protection.
+
+### Upgrade
+
+- Run ordinary `php artisan migrate` before enabling `Scarlett\Policies\RateLimit`. Migration `2026_11_14_000009_add_throttle_reservations.php` adds shared quota storage and nullable attempt receipts; existing workflows and published migrations are preserved.
+- Configure named `max_requests`/`per_seconds` quotas and return `RateLimit` from each applicable step's `throttle()` hook. Existing custom throttlers remain supported; an empty configuration adds no limits.
+- Quotas permit rolling-window bursts, and failed calls retain their admission charge. API-error retries consume the existing failure budget and check quota again when due. See [configuration, limits and rollout](docs/throttling.md).
+
 ## 2.0.2 — 2026-11-14
 
 ### Documentation

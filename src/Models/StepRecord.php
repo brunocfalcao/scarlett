@@ -51,6 +51,7 @@ class StepRecord extends Model
         'lease_until',
         'error',
         'execution',
+        'throttle_reservations',
         'not_before',
         'started_at',
         'finished_at',
@@ -61,6 +62,7 @@ class StepRecord extends Model
         return [
             'state' => StepState::class,
             'execution' => 'array',
+            'throttle_reservations' => 'array',
             'child_phase' => ChildPhase::class,
             'not_before' => 'immutable_datetime',
             'started_at' => 'immutable_datetime',

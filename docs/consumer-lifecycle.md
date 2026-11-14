@@ -392,7 +392,9 @@ follow the [2.0 upgrade checklist](runtime-children.md#upgrade-from-scarlett-1x)
 
 Migration `000008_add_query_indexes` adds the indexes described in
 [large-table rollout notes](database-indexes.md). Version 2.0.2 changes documentation
-and comments only; it adds no migration or runtime API.
+and comments only; it adds no migration or runtime API. Version 2.1.0 adds
+`000009_add_throttle_reservations`, with shared quota storage and per-attempt
+receipts. See [throttling rollout and rollback](throttling.md).
 
 Stop admission/workers and drain or deliberately cancel outstanding work before
 rolling back code/schema. Rolling back these migrations removes slot pointers

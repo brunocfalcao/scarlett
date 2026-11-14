@@ -7,7 +7,7 @@ serialized jobs are compatible. Do not point Scarlett at dispatcher tables.
 ## Install and upgrade the package
 
 Follow the [installation guide](README.md#install) and choose the package revision
-you will validate. Use the tagged `^2.0` Composer constraint for this API.
+you will validate. Use the tagged `^2.1` Composer constraint for this API.
 Existing Scarlett 1.x consumers should follow the
 [upgrade checklist](docs/runtime-children.md#upgrade-from-scarlett-1x). A Composer
 path repository with symlinking is optional for local package development; its path depends on your workspace. A remote install
@@ -32,7 +32,9 @@ execution settings, scheduling and step timestamps. The subsequent additive
 `2026_11_14_000007_add_runtime_children.php` adds durable runtime-child handoff fields.
 `2026_11_14_000008_add_query_indexes.php` adds query indexes in v2.0.1; see
 [index coverage and large-table rollout](docs/database-indexes.md).
-Fresh installations run all nine; existing installations run only missing files. Repeated `migrate` is a
+`2026_11_14_000009_add_throttle_reservations.php` adds shared quota storage and
+nullable attempt receipts in v2.1.0; see [throttling](docs/throttling.md).
+Fresh installations run all ten; existing installations run only missing files. Repeated `migrate` is a
 no-op. Legacy Scarlett rows with no execution snapshot use configured defaults.
 New rows retain their admitted execution settings across deployments. Runtime
 children require `v2.0.0` or later; `v1.0.0` does not contain this API.
@@ -337,3 +339,16 @@ revision and apply its migrations before starting updated workers.
 See [the lifecycle API](docs/consumer-lifecycle.md) for exact signatures, veto
 semantics, failure causes and transaction examples, and [the full guide](docs/guide.md)
 for configuration and operations.
+
+## Optional shared rate limits (v2.1.0)
+
+Run ordinary package migrations before enabling `RateLimit`. Configure named
+`max_requests`/`per_seconds` policies, then return a policy and explicit sharing key
+from each applicable step's `throttle()` hook. Share an account key across workflows
+when they consume the same provider quota. This does not count API errors as
+throttle waits: classify unsuccessful calls with `Decision::retry($seconds)` to
+retain bounded retries. Each retry must acquire admission again.
+
+See [the API, examples, migration and rollout rules](docs/throttling.md). Keep AI
+calls out of constructors, use one intended call per admitted action, and preserve
+remote-effect idempotency. Existing custom throttlers need no conversion.

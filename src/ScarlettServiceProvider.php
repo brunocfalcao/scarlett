@@ -6,6 +6,7 @@ namespace Scarlett;
 
 use Illuminate\Support\ServiceProvider;
 use Scarlett\Commands\ArchiveCommand;
+use Scarlett\Commands\PruneThrottlesCommand;
 use Scarlett\Commands\PurgeCommand;
 use Scarlett\Commands\RecoverCommand;
 use Scarlett\States\StateRegistry;
@@ -24,7 +25,7 @@ class ScarlettServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->commands([RecoverCommand::class, ArchiveCommand::class, PurgeCommand::class]);
+        $this->commands([RecoverCommand::class, ArchiveCommand::class, PurgeCommand::class, PruneThrottlesCommand::class]);
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
         $this->publishes([__DIR__.'/../config/scarlett.php' => config_path('scarlett.php')], 'scarlett-config');
     }

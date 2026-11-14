@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Events\TransactionBeginning;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Orchestra\Testbench\Foundation\Application;
@@ -12,8 +13,10 @@ use Scarlett\Definition\SubjectSlot;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\Exceptions\DeletionVetoed;
+use Scarlett\Execution\Context;
 use Scarlett\Execution\Decision;
 use Scarlett\Failures\Coordinator;
+use Scarlett\Policies\RateLimit;
 use Scarlett\ScarlettServiceProvider;
 use Scarlett\Tests\Collision\Environment;
 use Scarlett\Tests\Fixtures\EchoStep;
@@ -61,6 +64,14 @@ if (($arguments['wait_for_admission_waiter'] ?? false) && Environment::driver() 
 $started = microtime(true);
 $engine = app(Engine::class);
 $result = match ($arguments['operation']) {
+    'rate-limit' => (function () use ($arguments): array {
+        Carbon::setTestNow($arguments['now']);
+        config(['scarlett.throttles' => ['shared' => ['max_requests' => 1, 'per_seconds' => 60]]]);
+        $policy = new RateLimit('shared', $arguments['key']);
+        $context = new Context($arguments['workflow'], $arguments['step'], $arguments['attempt'], 0);
+
+        return [$policy->delay($context), $policy->delay($context)];
+    })(),
     'write-and-admit' => (function () use ($engine, $arguments): bool {
         $write = function () use ($engine, $arguments): bool {
             $consumer = DB::table('consumer_records')->where('id', $arguments['subject'])->lockForUpdate()->first();

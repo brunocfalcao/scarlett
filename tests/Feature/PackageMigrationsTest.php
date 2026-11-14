@@ -63,8 +63,9 @@ it('adds query indexes on fresh installs and preserves data through upgrade repe
             }
         }
     };
+    $indexMigration = require __DIR__.'/../../database/migrations/2026_11_14_000008_add_query_indexes.php';
     $assertIndexes(true);
-    $this->artisan('migrate:rollback', ['--step' => 1, '--force' => true])->assertExitCode(0);
+    $indexMigration->down();
     $assertIndexes(false);
 
     Queue::fake();
@@ -89,7 +90,7 @@ it('adds query indexes on fresh installs and preserves data through upgrade repe
     };
     $before = $snapshot();
     foreach ([true, false, true] as $install) {
-        $this->artisan($install ? 'migrate' : 'migrate:rollback', $install ? ['--force' => true] : ['--step' => 1, '--force' => true])->assertExitCode(0);
+        $install ? $indexMigration->up() : $indexMigration->down();
         if ($install) {
             // Also cover resuming partially applied non-transactional MySQL DDL.
             (require __DIR__.'/../../database/migrations/2026_11_14_000008_add_query_indexes.php')->up();

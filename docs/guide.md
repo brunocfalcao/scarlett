@@ -65,13 +65,13 @@ Add this repository entry to your application's existing `composer.json`
 Then install the tagged stable release:
 
 ```sh
-composer require brunocfalcao/scarlett:^2.0
+composer require brunocfalcao/scarlett:^2.1
 php artisan migrate
 ```
 
 Laravel discovers Scarlett's service provider automatically. It registers the
-configuration, package migrations and the `scarlett:recover`, `scarlett:archive`
-and `scarlett:purge` commands. For local package
+configuration, package migrations and the `scarlett:recover`, `scarlett:archive`,
+`scarlett:purge` and `scarlett:prune-throttles` commands. For local package
 development, Composer also supports a symlinked [path repository](https://getcomposer.org/doc/05-repositories.md#path).
 
 ### 2. Configure your queue
@@ -346,6 +346,9 @@ or seconds to wait. Throwing `Scarlett\Exceptions\Throttled` also defers executi
 | Saved result cannot be restored, or verification fails | Retry restoration/verification; do not rerun the saved action | Separate verification budget |
 | Throttle | Defer execution | Does not spend failure retries |
 | Zero-second throttle | Wait `scarlett.minimum_throttle_seconds` (default `1`) | Does not spend failure retries |
+
+For named shared quotas, atomic admission and the distinction from API retries,
+see [throttling and retries](throttling.md).
 
 Explicit positive throttle waits and ordinary zero-second retries keep their given
 meaning. Accepted results from hooks still undergo verification. Put required terminal

@@ -39,7 +39,7 @@ Add this entry to your application's `composer.json` repositories:
 ```
 
 ```sh
-composer require brunocfalcao/scarlett:^2.0
+composer require brunocfalcao/scarlett:^2.1
 php artisan migrate
 ```
 
@@ -226,6 +226,7 @@ The parent waits, verifies the backup's result, then releases its successors.
 - [Handle terminal failures, including worker loss](docs/consumer-lifecycle.md#handle-every-terminal-failure-durably)
 - [Guard business writes and admit follow-up work](docs/consumer-lifecycle.md#admit-follow-up-work-atomically-with-consumer-writes)
 - [Contributor architecture and table map](docs/architecture.md)
+- [Shared throttles and bounded retries](docs/throttling.md)
 - [Full guide](docs/guide.md) · [Configuration](config/scarlett.php) · [Testing](docs/guide.md#develop-and-test-the-package) · [Changelog](CHANGELOG.md)
 
 ## Development transparency

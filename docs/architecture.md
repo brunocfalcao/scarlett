@@ -54,6 +54,7 @@ service resolution must therefore tolerate repeated preparation.
 | `Execution/Delivery`, `Jobs` | Queue transport | Primitive envelopes, after-commit publication, duplicate-safe claims |
 | `Failures` | Durable terminal hooks | Separate attempts; child hooks settle before parent hooks |
 | `Admission`, `WorkflowSlots`, `SubjectDeletion` | Admission and subject ownership | Engine locks precede consumer locks; veto rolls back all writes |
+| `Policies/RateLimit`, `Execution/ThrottleReservations` | Shared rolling-window admission | Workflow/step/quota lock order; one grant per current attempt; waits do not spend failure retries |
 | `Recovery`, `Commands` | Repair and retention entrypoints | No normal progression polling and no package-owned schedules |
 | `History`, `Models` | Retained records and explicit cleanup | Lock and recheck settlement; never bypass the engine with direct model writes |
 | `ScarlettServiceProvider`, `Configuration` | Laravel integration and validation | Auto-discover migrations; validate admitted execution snapshots |
@@ -108,7 +109,7 @@ for idempotency; exactly-once external effects are not promised.
 
 ## Storage ownership
 
-Seven package tables serve different lifecycles:
+Eight package tables serve different lifecycles:
 
 | Table | Stored responsibility |
 | --- | --- |
@@ -118,6 +119,7 @@ Seven package tables serve different lifecycles:
 | `scarlett_deliveries` | Durable step transport intents and publication leases |
 | `scarlett_history` | Append-only transition events with attempt, time and reason |
 | `scarlett_subject_slots` | Exact hashed subject/slot identity and current workflow pointer |
+| `scarlett_throttles` | Shared admission timestamps, consistent policy settings and expiry |
 | `scarlett_failures` | One opted-in terminal failure record per step, snapshot and handler attempt lifecycle |
 
 Relationships use restrictive foreign keys where declared. History cleanup deletes
@@ -131,11 +133,12 @@ removal additionally removes its slots.
 than a caller-supplied cutoff. Both recheck live state under the workflow lock;
 unfinished failure hooks protect the workflow from ordinary cleanup.
 
-Nine ordered package migrations define this schema. Published migration files
+Ten ordered package migrations define this schema. Published migration files
 are immutable, including comments. Add a new migration for schema changes and
 verify fresh install, retained-data upgrade, repeat migration and rollback on
 SQLite, MySQL and PostgreSQL. See [query indexes](database-indexes.md) for current
-coverage and large-table DDL limitations. No new migration accompanies v2.0.2.
+coverage and large-table DDL limitations. Version 2.1.0 adds throttle storage;
+see [throttling](throttling.md) for its rollout and rollback conditions.
 
 ## Reading telemetry correctly
 
