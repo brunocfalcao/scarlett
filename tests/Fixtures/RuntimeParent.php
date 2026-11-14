@@ -13,7 +13,9 @@ use Throwable;
 final class RuntimeParent extends Step
 {
     public static array $actions = [];
+
     public static array $verified = [];
+
     public static bool $verificationPasses = true;
 
     public function __construct(public int $depth = 1, public string $entry = 'handle', public mixed $value = 'backup result') {}

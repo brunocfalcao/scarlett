@@ -2,7 +2,10 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Schema;
+use Scarlett\Definition\ExecutionOptions;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
@@ -10,7 +13,13 @@ use Scarlett\Execution\Decision;
 use Scarlett\Execution\Runner;
 use Scarlett\Inputs\FromResult;
 use Scarlett\Inputs\PayloadCodec;
+use Scarlett\States\Completed;
+use Scarlett\States\Running;
+use Scarlett\States\WaitingForChildren;
+use Scarlett\Tests\Fixtures\Approved;
 use Scarlett\Tests\Fixtures\ControlledStep;
+use Scarlett\Tests\Fixtures\FailureAwareStep;
+use Scarlett\Tests\Fixtures\GuardedApproval;
 use Scarlett\Tests\Fixtures\RuntimeParent;
 
 beforeEach(function () {
@@ -130,7 +139,7 @@ it('rejects a second plan on predefined children and during verification', funct
     $parent = $flow->steps()->where('key', 'parent')->sole();
     $engine->claim($parent->id, $parent->attempt);
     if (! $predefined) {
-        $engine->saveAction($parent->id, $parent->attempt, 'saved', Scarlett\States\Completed::class);
+        $engine->saveAction($parent->id, $parent->attempt, 'saved', Completed::class);
     }
     expect(fn () => $engine->decide($parent->id, $parent->attempt, Decision::children([controlled('extra')])))->toThrow(InvalidArgumentException::class);
     expect($flow->steps()->count())->toBe($predefined ? 2 : 1);
@@ -144,7 +153,7 @@ it('inherits routing through local ancestors while preserving explicit zero prio
     $engine->claim($parent->id, $parent->attempt);
     $engine->decide($parent->id, $parent->attempt, Decision::children([
         new Node('nested', ControlledStep::class, inputs: ['name' => 'nested'], parent: 'override'),
-        new Node('override', ControlledStep::class, inputs: ['name' => 'override'], queue: 'low', connection: 'null', priority: 0, execution: new Scarlett\Definition\ExecutionOptions(attempts: 7)),
+        new Node('override', ControlledStep::class, inputs: ['name' => 'override'], queue: 'low', connection: 'null', priority: 0, execution: new ExecutionOptions(attempts: 7)),
         controlled('inherited'),
         controlled('rescue', rescues: 'override'),
     ]));
@@ -230,7 +239,7 @@ it('retries before handoff and recovers lost child delivery without duplicating 
     $engine->claim($parent->id, $newAttempt);
     expect($engine->decide($parent->id, $newAttempt, Decision::children([controlled('child')])))->toBeTrue();
     $child = $flow->steps()->where('parent_key', 'parent')->sole();
-    Illuminate\Support\Facades\DB::table('scarlett_deliveries')->where('step_id', $child->id)->update(['sent_at' => null]);
+    DB::table('scarlett_deliveries')->where('step_id', $child->id)->update(['sent_at' => null]);
     expect($engine->recover($child->id))->toBeTrue();
     runStep($flow->id, $child->key);
     runStep($flow->id, 'parent');
@@ -245,11 +254,11 @@ it('keeps the runtime schema until active plans finish and preserves results thr
     runStep($flow->id, 'parent');
     $parent = $flow->steps()->where('key', 'parent')->sole();
     expect(fn () => $migration->down())->toThrow(RuntimeException::class, 'Drain runtime child workflows');
-    expect(Illuminate\Support\Facades\Schema::hasColumn('scarlett_steps', 'child_phase'))->toBeTrue();
+    expect(Schema::hasColumn('scarlett_steps', 'child_phase'))->toBeTrue();
     runStep($flow->id, $parent->id.'/backup');
     runStep($flow->id, 'parent');
     $migration->down();
-    expect(Illuminate\Support\Facades\Schema::hasColumn('scarlett_steps', 'child_phase'))->toBeFalse();
+    expect(Schema::hasColumn('scarlett_steps', 'child_phase'))->toBeFalse();
     $migration->up();
     expect($parent->fresh()->child_phase)->toBeNull();
     expect(app(PayloadCodec::class)->decode($parent->fresh()->result))->toBe('backup result');
@@ -262,7 +271,7 @@ it('rolls back the complete handoff with its enclosing transaction', function ()
     $parent = $flow->steps()->sole();
     $engine->claim($parent->id, $parent->attempt);
     Queue::fake();
-    expect(fn () => Illuminate\Support\Facades\DB::transaction(function () use ($engine, $parent) {
+    expect(fn () => DB::transaction(function () use ($engine, $parent) {
         expect($engine->decide($parent->id, $parent->attempt, Decision::children([controlled('child')])))->toBeTrue();
         throw new RuntimeException('Undo consumer transaction');
     }))->toThrow(RuntimeException::class, 'Undo consumer transaction');
@@ -297,14 +306,14 @@ it('preserves typed child results and defers scheduled children at the exact key
 });
 
 it('runs runtime child failure hooks before the parent and preserves the typed cause', function (string $mode, string $cause) {
-    Scarlett\Tests\Fixtures\FailureAwareStep::$constructionThrows = false;
-    Scarlett\Tests\Fixtures\FailureAwareStep::$hookThrows = false;
+    FailureAwareStep::$constructionThrows = false;
+    FailureAwareStep::$hookThrows = false;
     $engine = app(Engine::class);
-    $flow = $engine->start(new Workflow([new Node('parent', Scarlett\Tests\Fixtures\FailureAwareStep::class, inputs: ['name' => 'parent'])]));
+    $flow = $engine->start(new Workflow([new Node('parent', FailureAwareStep::class, inputs: ['name' => 'parent'])]));
     $parent = $flow->steps()->sole();
     $engine->claim($parent->id, $parent->attempt);
     $engine->decide($parent->id, $parent->attempt, Decision::children([
-        new Node('child', Scarlett\Tests\Fixtures\FailureAwareStep::class, inputs: ['name' => 'child', 'mode' => $mode]),
+        new Node('child', FailureAwareStep::class, inputs: ['name' => 'child', 'mode' => $mode]),
     ], resultFrom: 'child'));
     runStep($flow->id, $parent->id.'/child');
     $parentFailure = $flow->failures()->where('step_id', $parent->id)->sole();
@@ -323,16 +332,16 @@ it('runs runtime child failure hooks before the parent and preserves the typed c
 })->with([['fail', 'child_failed'], ['skip', 'child_result_missing']]);
 
 it('applies configured completion guards after runtime children and parent verification', function (bool $allowed) {
-    Scarlett\Tests\Fixtures\GuardedApproval::$allowed = $allowed;
-    config(['scarlett.states' => [Scarlett\Tests\Fixtures\Approved::class], 'scarlett.transitions' => [
-        [Scarlett\States\Running::class, Scarlett\Tests\Fixtures\Approved::class, Scarlett\Tests\Fixtures\GuardedApproval::class],
-        [Scarlett\States\WaitingForChildren::class, Scarlett\Tests\Fixtures\Approved::class, Scarlett\Tests\Fixtures\GuardedApproval::class],
+    GuardedApproval::$allowed = $allowed;
+    config(['scarlett.states' => [Approved::class], 'scarlett.transitions' => [
+        [Running::class, Approved::class, GuardedApproval::class],
+        [WaitingForChildren::class, Approved::class, GuardedApproval::class],
     ]]);
     $engine = app(Engine::class);
     $flow = $engine->start(new Workflow([controlled('parent'), controlled('after', stage: 1)]));
     $parent = $flow->steps()->where('key', 'parent')->sole();
     $engine->claim($parent->id, $parent->attempt);
-    expect($engine->decide($parent->id, $parent->attempt, Decision::children([controlled('child')], state: Scarlett\Tests\Fixtures\Approved::class)))->toBeTrue();
+    expect($engine->decide($parent->id, $parent->attempt, Decision::children([controlled('child')], state: Approved::class)))->toBeTrue();
     runStep($flow->id, $parent->id.'/child');
     expect((string) $parent->fresh()->state)->toBe('queued');
     runStep($flow->id, 'parent');

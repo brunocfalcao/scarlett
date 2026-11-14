@@ -292,6 +292,7 @@ Requesting a service/result binding or absent name throws `InvalidArgumentExcept
 | `HandlerCrashed` | `handler_crashed` | The action's exception classifier failed |
 | `InputResolution` | `input_resolution` | Input/constructor failure classified terminal directly |
 | `ChildFailed` | `child_failed` | A failed/stopped child concluded its parent |
+| `ChildResultMissing` | `child_result_missing` | A runtime parent selected a child that settled without a durable result |
 | `ResultPersistence` | `result_persistence` | A successful action's result could not be stored |
 | `CompletionRejected` | `completion_rejected` | A completion state transition was denied |
 
@@ -385,6 +386,9 @@ updated workers. Additive migrations `000005_create_subject_slots` and
 `000006_create_failure_executions` are discovered by the provider; do not publish
 or copy them. Existing workflows remain unslotted, without invented historical
 failure records. New failures after upgrade use the hooks currently deployed.
+Migration `000007_add_runtime_children` adds nullable runtime handoff fields and
+refuses rollback while an unfinished workflow uses them. For Scarlett 1.x, also
+follow the [2.0 upgrade checklist](runtime-children.md#upgrade-from-scarlett-1x).
 
 Stop admission/workers and drain or deliberately cancel outstanding work before
 rolling back code/schema. Rolling back these migrations removes slot pointers

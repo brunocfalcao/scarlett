@@ -2,7 +2,7 @@
 
 Return a child plan when a running step discovers work that must finish before
 its successors can start. Children belong to the same workflow; they can return
-child plans of their own. This API is newer than `v1.0.0`.
+child plans of their own. This API is available from `v2.0.0`.
 
 ## Public API
 
@@ -147,3 +147,23 @@ code, migrate, then restart workers on the new revision.
 Rollback refuses to remove these fields while an unfinished workflow contains a
 runtime plan. Drain those workflows, stop workers, then roll back schema and code
 together. Settled results remain intact. Never edit or copy published migrations.
+
+## Upgrade from Scarlett 1.x
+
+1. Change the Composer constraint to `^2.0` and resolve the new version through your
+   normal dependency workflow. Existing `^1.0` constraints will not select this release.
+2. Review direct reads of `Node::$priority`: its type/default is now `?int = null`.
+   Omission inherits routing in runtime plans and resolves to zero for ordinary
+   workflow admission. Use explicit `priority: 0` to override inherited priority.
+3. Resolve `Engine` through Laravel's container or the facade. Its constructor
+   dependencies changed; custom manual construction must follow the new signature.
+4. Add `FailureCause::ChildResultMissing` to exhaustive enum matches. It means the
+   selected child settled without a durable result, such as a skipped backup.
+5. Pause admission and drain/stop old workers, update the package, run ordinary
+   `php artisan migrate`, then start the updated workers. Migration `000007` adds
+   nullable fields; existing predefined workflows need no data conversion.
+
+Existing predefined child timing remains unchanged. Runtime plans verify their
+parent after the children settle. Do not mix package versions among active workers.
+For rollback, drain runtime work and stop workers before downgrading schema/code;
+the new migration refuses rollback while an unfinished workflow uses its fields.

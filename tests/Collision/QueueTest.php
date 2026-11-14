@@ -20,6 +20,7 @@ use Scarlett\Tests\Fixtures\Amount;
 use Scarlett\Tests\Fixtures\AmountMapper;
 use Scarlett\Tests\Fixtures\EchoStep;
 use Scarlett\Tests\Fixtures\FailureAwareStep;
+use Scarlett\Tests\Fixtures\RuntimeParent;
 use Scarlett\Tests\Fixtures\SlowFailureAwareStep;
 use Scarlett\Tests\Fixtures\SlowStep;
 use Scarlett\Tests\Fixtures\TypedStep;
@@ -193,7 +194,7 @@ it('recovers terminal failure effects after real action or handler worker timeou
 it('executes nested runtime backups and parent verification through an independent queue worker', function () {
     config(['queue.default' => 'database', 'queue.connections.database.connection' => Environment::driver()]);
     $flow = app(Engine::class)->start(new Workflow([
-        new Node('parent', Scarlett\Tests\Fixtures\RuntimeParent::class, inputs: ['depth' => 3]),
+        new Node('parent', RuntimeParent::class, inputs: ['depth' => 3]),
         new Node('after', EchoStep::class, stage: 1, inputs: ['value' => new FromResult('parent')]),
     ]));
     expect(statesOf($flow->id))->toBe(['after' => 'pending', 'parent' => 'queued']);

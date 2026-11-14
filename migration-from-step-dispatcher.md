@@ -7,9 +7,10 @@ serialized jobs are compatible. Do not point Scarlett at dispatcher tables.
 ## Install and upgrade the package
 
 Follow the [installation guide](README.md#install) and choose the package revision
-you will validate. The first public tag is `v1.0.0`; use a tagged Composer constraint
-(such as `^1.0`) for deployment. A Composer path repository with symlinking is optional for
-local package development; its path depends on your workspace. A remote install
+you will validate. Use the tagged `^2.0` Composer constraint for this API.
+Existing Scarlett 1.x consumers should follow the
+[upgrade checklist](docs/runtime-children.md#upgrade-from-scarlett-1x). A Composer
+path repository with symlinking is optional for local package development; its path depends on your workspace. A remote install
 does not include uncommitted local changes. Keep both dependencies only while
 separately owned old workflows drain. Never execute one workflow with both engines.
 
@@ -32,7 +33,7 @@ execution settings, scheduling and step timestamps. The subsequent additive
 Fresh installations run all eight; existing installations run only missing files. Repeated `migrate` is a
 no-op. Legacy Scarlett rows with no execution snapshot use configured defaults.
 New rows retain their admitted execution settings across deployments. Runtime
-children require a revision newer than `v1.0.0`; that tag does not contain this API.
+children require `v2.0.0` or later; `v1.0.0` does not contain this API.
 The runtime-child migration refuses rollback while any unfinished workflow uses
 its handoff fields. Drain work and stop workers before coordinated schema/code rollback.
 

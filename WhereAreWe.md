@@ -1,6 +1,6 @@
 # Current state
 
-The public `v1.0.0` release remains unchanged. The current package candidate adds
+The `v2.0.0` source release adds
 runtime child plans for staged fanout and nested backups. Scope is this package
 only; no consumer code or application databases were changed.
 
@@ -29,4 +29,11 @@ routing, failure/rescue ordering, migration safety and real worker contention.
 Existing custom completion guards remain supported; their regressions were caught
 and repaired before these final full runs. Documentation links and diff checks passed.
 
-This candidate is not tagged or published. No consumer acceptance is claimed.
+The release preparation reran the full MySQL package gate and the reference host
+(14 tests / 56 assertions), with Composer strict validation and package Pint.
+The immutable tag, GitHub Release and exact-commit Actions results record source
+publication. No consumer migration, deployment or acceptance is claimed.
+
+The version is major because `Node::$priority` is now nullable for inheritance.
+Read the [1.x upgrade checklist](docs/runtime-children.md#upgrade-from-scarlett-1x)
+before updating existing installations.

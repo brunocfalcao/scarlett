@@ -39,7 +39,7 @@ Add this entry to your application's `composer.json` repositories:
 ```
 
 ```sh
-composer require brunocfalcao/scarlett:^1.0
+composer require brunocfalcao/scarlett:^2.0
 php artisan migrate
 ```
 
@@ -202,7 +202,7 @@ php artisan scarlett:purge --days=30
 
 External effects must be **idempotent**: a worker can crash after an API call but
 before saving its result. Cancellation revokes ownership; it cannot undo that call.
-When work is discovered during execution, return a child plan (newer than `v1.0.0`):
+When work is discovered during execution, return a child plan (available since `v2.0.0`):
 
 ```php
 use Scarlett\Execution\Decision;

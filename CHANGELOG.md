@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.0.0 — 2026-11-14
 
 ### Features
 
@@ -8,9 +8,15 @@
 - Forward a selected child's durable result through the original parent identity; verify the parent after children finish without replaying its action. Missing selected results report `ChildResultMissing`.
 - Additive runtime-child migration, discovered by ordinary Laravel migrations, with active-work rollback protection. Published migrations remain unchanged.
 
+### Breaking changes and upgrade
+
+- `Node::$priority` changes from `int = 0` to `?int = null` for runtime inheritance. Ordinary workflow admission still resolves omitted priority to zero; explicit zero overrides inherited priority. Code reading the definition property must handle null.
+- `Engine` constructor dependencies changed. Resolve it through Laravel's container or the Scarlett facade instead of constructing it manually.
+- `FailureCause::ChildResultMissing` is a new enum case. Update exhaustive failure-cause matches before enabling runtime plans.
+- Run ordinary `php artisan migrate` before starting updated workers. See the [1.x upgrade checklist](docs/runtime-children.md#upgrade-from-scarlett-1x).
+
 ### API notes
 
-- `Node` priority accepts `null` for runtime inheritance; ordinary workflow admission still defaults to zero. Explicit zero overrides inherited priority.
 - Runtime plans are closed: one per parent action, no mixing with predefined ordinary children, no external graph references or incremental appending. Existing predefined graphs retain their behavior.
 
 ## 1.0.0 — 2026-11-14

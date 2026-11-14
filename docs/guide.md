@@ -3,7 +3,8 @@
 [Back to the quick start](../README.md)
 
 Scarlett coordinates multi-step work inside your Laravel application. Define the
-steps and their relationships up front. When an outcome is committed, Scarlett
+initial steps and relationships up front; a running step may return a closed
+[runtime child plan](runtime-children.md). When an outcome is committed, Scarlett
 identifies eligible successors and publishes their jobs after the transaction commits.
 
 **Normal progression never waits for a scheduler tick.** Laravel queue workers
@@ -64,7 +65,7 @@ Add this repository entry to your application's existing `composer.json`
 Then install the tagged stable release:
 
 ```sh
-composer require brunocfalcao/scarlett:^1.0
+composer require brunocfalcao/scarlett:^2.0
 php artisan migrate
 ```
 
@@ -234,8 +235,8 @@ another same-stage sibling is not a valid prerequisite binding.
 
 ### Parents, children and rescue branches
 
-Define the whole tree before starting. A parent runs and verifies its own action,
-then waits for its children. Children may read the parent's committed action result.
+For predefined children, define the tree before starting. A parent runs and
+verifies its own action, then waits for its children. Children may read the parent's committed action result.
 A `rescues` node becomes eligible when its target definitively fails or stops.
 Failure cascades **from child to parent**. The parent stays `waitingforchildren`
 until its children and their complete rescue branches settle. This includes
