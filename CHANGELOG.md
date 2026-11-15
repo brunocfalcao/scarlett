@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.3.1 — 2026-11-15
+
+### Tests
+
+- Verify that a running parent can create a child and grandchild after enabling cooldown, and that the entire subtree completes without reopening admission. Assert queued deliveries, exact action calls and the forwarded result.
+- Verify that an unrelated workflow created during the same cooldown remains held, with no queued delivery or execution, even when its runner is invoked directly.
+
+### Upgrade
+
+- Regression coverage and documentation only; no runtime, public API, configuration, dependency or schema changes. All eleven published migrations remain unchanged. Upgrading from 2.3.0 requires no new migration or step conversion; earlier upgrades still require their existing migrations.
+
 ## 2.3.0 — 2026-11-14
 
 ### Added

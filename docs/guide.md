@@ -478,6 +478,12 @@ Scarlett::cancel($stepId, includingRunning: true); // Also revoke an active atte
 Scarlett::cancelWorkflow($workflowId); // Revoke every unfinished node.
 ```
 
+Cooldown holds new workflows, including their steps. A started workflow can still
+admit runtime children and grandchildren and finish their parent verification,
+even when those descendants are created after cooldown begins. Reopening is not
+required for that subtree; unrelated new workflows remain held. See
+[runtime-child guarantees](runtime-children.md#guarantees-and-limits).
+
 Set `delivery_retry_seconds` above normal queue latency. Recovery cannot distinguish
 a lost job from an unclaimed backlog; replay can publish another copy of the same
 attempt, while atomic claims protect execution. Early jobs release until due without

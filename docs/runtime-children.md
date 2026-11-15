@@ -108,6 +108,10 @@ straight to parent verification with `$result`.
 
 ## Guarantees and limits
 
+- **Cooldown:** started workflows can create and finish runtime descendants even
+  after cooldown begins. Parent verification continues without reopening;
+  unrelated new workflows remain held. These are steps in the same workflow,
+  not independently owned child workflows.
 - **Ownership:** the workflow lock and current unexpired attempt guard the write.
   Stale, cancelled and expired attempts cannot admit children. Subject deletion
   uses that same workflow lock; expansion acquires no new global admission lock.

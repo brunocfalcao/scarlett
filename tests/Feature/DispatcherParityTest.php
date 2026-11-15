@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\ExecutionOptions;
 use Scarlett\Definition\Node;
@@ -15,6 +16,7 @@ use Scarlett\Jobs\ExecuteStep;
 use Scarlett\Models\WorkflowRecord;
 use Scarlett\States\Completed;
 use Scarlett\Tests\Fixtures\ControlledStep;
+use Scarlett\Tests\Fixtures\CooldownRuntimeParent;
 use Scarlett\Tests\Fixtures\DispatcherParityStep;
 use Scarlett\Tests\Fixtures\EchoStep;
 use Scarlett\Tests\Fixtures\FailureAwareStep;
@@ -203,6 +205,66 @@ it('allows already-running multi-stage and runtime-child workflows to finish dur
     runStep($held->id, 'held-step');
 
     expect($held->fresh()->status)->toBe('completed');
+});
+
+it('runs children and grandchildren created after cooldown begins inside a running parent while unrelated work stays held', function () {
+    $engine = app(Engine::class);
+    $flow = $engine->start(new Workflow([
+        new Node('parent', CooldownRuntimeParent::class, inputs: [
+            'name' => 'parent', 'mode' => 'spawn', 'spawnDepth' => 2, 'value' => 'during cooldown',
+        ]),
+    ]));
+    $parent = $flow->steps()->sole();
+    expect(statesOf($flow->id))->toBe(['parent' => 'queued'])
+        ->and(DispatcherParityStep::$events)->toBe([])
+        ->and((bool) DB::table('scarlett_control')->where('id', 'admission')->value('cooldown'))->toBeFalse();
+
+    runStep($flow->id, 'parent');
+
+    $child = $flow->steps()->where('parent_key', 'parent')->sole();
+    expect(DispatcherParityStep::$events)->toBe([
+        ['before', 'parent', 'spawn'], ['cooldown', 'parent', 'running'], ['handle', 'parent', 'spawn'],
+    ])->and((bool) DB::table('scarlett_control')->where('id', 'admission')->value('cooldown'))->toBeTrue()
+        ->and((string) $parent->fresh()->state)->toBe('waitingforchildren')
+        ->and((string) $child->state)->toBe('queued')
+        ->and($flow->steps()->count())->toBe(2);
+    Queue::assertPushed(ExecuteStep::class, fn (ExecuteStep $job): bool => $job->stepId === $child->id);
+
+    $held = $engine->start(new Workflow([
+        new Node('unrelated', DispatcherParityStep::class, inputs: ['name' => 'unrelated', 'value' => 'blocked']),
+    ]));
+    $heldStep = $held->steps()->sole();
+    $heldSnapshot = $heldStep->getRawOriginal();
+    expect($held->status)->toBe('held')->and(statesOf($held->id))->toBe(['unrelated' => 'pending']);
+    runStep($held->id, 'unrelated');
+    expect($heldStep->fresh()->getRawOriginal())->toBe($heldSnapshot);
+
+    runStep($flow->id, $child->key);
+
+    $grandchild = $flow->steps()->where('parent_key', $child->key)->sole();
+    expect((string) $child->fresh()->state)->toBe('waitingforchildren')
+        ->and((string) $grandchild->state)->toBe('queued')
+        ->and($flow->steps()->count())->toBe(3)
+        ->and((bool) DB::table('scarlett_control')->where('id', 'admission')->value('cooldown'))->toBeTrue();
+    Queue::assertPushed(ExecuteStep::class, fn (ExecuteStep $job): bool => $job->stepId === $grandchild->id);
+
+    runStep($flow->id, $grandchild->key);
+    runStep($flow->id, $child->key);
+    runStep($flow->id, 'parent');
+    runStep($held->id, 'unrelated');
+
+    expect($flow->fresh()->status)->toBe('completed')
+        ->and((string) $parent->fresh()->state)->toBe('completed')
+        ->and((string) $child->fresh()->state)->toBe('completed')
+        ->and((string) $grandchild->fresh()->state)->toBe('completed')
+        ->and(app(PayloadCodec::class)->decode($parent->fresh()->result))->toBe('during cooldown')
+        ->and(array_values(array_filter(DispatcherParityStep::$events, fn (array $event): bool => $event[0] === 'handle')))->toBe([
+            ['handle', 'parent', 'spawn'], ['handle', 'child-2', 'spawn'], ['handle', 'child-1', 'value'],
+        ])->and($held->fresh()->status)->toBe('held')
+        ->and($held->fresh()->started_at)->toBeNull()
+        ->and($heldStep->fresh()->getRawOriginal())->toBe($heldSnapshot)
+        ->and((bool) DB::table('scarlett_control')->where('id', 'admission')->value('cooldown'))->toBeTrue();
+    Queue::assertNotPushed(ExecuteStep::class, fn (ExecuteStep $job): bool => $job->stepId === $heldStep->id);
 });
 
 it('handles before() skip/stop/fail/retry decisions without prematurely executing handle()', function (string $mode, string $expectedStepState, string $expectedWorkflowStatus) {

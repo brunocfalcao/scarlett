@@ -24,7 +24,8 @@ flowchart LR
     Slug --> Result["hello-laravel"]
 ```
 
-Version 2.3.0 adds workflow/step labels and automatic step argument recording.
+Version 2.3.1 strengthens regression coverage for runtime children during cooldown.
+Version 2.3 adds workflow/step labels and automatic step argument recording.
 See the [changelog](CHANGELOG.md) for upgrade details.
 
 ## Install

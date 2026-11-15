@@ -1,4 +1,40 @@
-# Current state — 2026-11-14
+# Current state — 2026-11-15
+
+## v2.3.1 runtime-child cooldown coverage — 2026-11-15
+
+Complete candidate from v2.3.0
+(`a8ecbe4e3741900f78b09b5d0ab08a32fc15b242`): one regression, its fixture and
+release documentation. A running parent enables cooldown, then creates a child
+and grandchild that complete without reopening. Exact action calls, queued
+deliveries and the forwarded result are asserted. An unrelated new workflow
+remains held and unchanged even when its runner is invoked directly.
+
+No runtime, API, dependency, configuration or schema change. All eleven published
+migrations retain their bytes; upgrading from 2.3.0 adds no migration or step
+conversion. Workflows still contain nested steps, with no workflow-level result.
+
+Fresh full package runs on PHP 8.5.12, using `./run-pest-tia.sh --fresh`
+with `SCARLETT_TEST_DRIVER` selected per lane:
+
+| Database | Passed tests | Assertions |
+| --- | ---: | ---: |
+| SQLite | 543 | 5,010 |
+| MySQL | 543 | 5,017 |
+| PostgreSQL | 543 | 5,015 |
+
+Every lane includes migration, real queue and contention checks, with no skipped
+cases. The default mixed SQLite-feature/MySQL-collision gate also passed
+543 tests / 5,018 assertions. The reference host passes **58 tests / 425 assertions**
+against this exact package symlink, using its exhaustive no-Git bootstrap path.
+There are **601 distinct package and host cases**, before repeating database lanes.
+
+Refactor review, package Pint, Composer strict validation and documentation links
+pass. Tested PHP hashes remain unchanged. All 19 maintained package/canonical
+Markdown documents were reviewed. Source publication and exact-SHA branch/tag CI
+are tracked by the [v2.3.1 Release](https://github.com/brunocfalcao/scarlett/releases/tag/v2.3.1)
+and the canonical implementation record. No consumer migration, deployment or
+registry submission is part of this release. Browser/provider/production-capacity
+acceptance is not implied; the dated results below remain historical.
 
 ## v2.3.0 labels and invocation diagnostics — 2026-11-14
 
