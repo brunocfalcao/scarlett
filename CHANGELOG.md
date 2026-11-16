@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.3.3 — 2026-11-16
+
+### Tests
+
+- Correct the missing-record heartbeat fixture to use a valid absent UUID. PostgreSQL rejected the placeholder used by the new v2.3.2 test before it could check the intended missing-record behavior.
+
+### Upgrade
+
+- Test and documentation correction only; runtime code, public API, dependencies, configuration and all eleven migrations are unchanged from v2.3.2. No additional migration or step conversion is needed.
+- Supersedes v2.3.2, whose PostgreSQL CI exposed the invalid test fixture. The v2.3.2 tag remains immutable.
+
 ## 2.3.2 — 2026-11-16
 
 ### Fixed

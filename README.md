@@ -24,6 +24,7 @@ flowchart LR
     Slug --> Result["hello-laravel"]
 ```
 
+Version 2.3.3 corrects PostgreSQL regression coverage for the 2.3.2 hardening.
 Version 2.3.2 hardens cancellation, admission validation and payload restoration.
 Version 2.3 adds workflow/step labels and automatic step argument recording.
 See the [changelog](CHANGELOG.md) for upgrade details.
@@ -280,3 +281,7 @@ stop only identified owned runs, and rerun collision proof after any overlap
 Patch-release review (2026-11-16): preserve published constructor call shapes
 when extracting internal helpers, and test manual construction alongside container
 resolution. Internal refactoring must not force consumer code changes.
+
+Database-fixture review (2026-11-16): missing-record tests must still use values
+valid for the column type. Use an absent UUID for UUID lookups and verify the
+changed case on PostgreSQL before publishing; SQLite text acceptance is insufficient.

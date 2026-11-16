@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Scarlett\Definition\ExecutionOptions;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\SubjectSlot;
@@ -64,7 +65,7 @@ it('extends only a current failure lease and rejects stale expired and cancelled
     expect($coordinator->heartbeat($failure->id, $failure->attempt))->toBeFalse()
         ->and($failure->fresh()->status)->toBe(Status::Cancelled)
         ->and($failure->fresh()->getAttributes())->toBe($cancelled)
-        ->and($coordinator->heartbeat('missing-failure', 'missing-attempt'))->toBeFalse();
+        ->and($coordinator->heartbeat((string) Str::uuid(), 'missing-attempt'))->toBeFalse();
 });
 
 function failureFlow(string $mode, int $attempts = 1): WorkflowRecord

@@ -10,6 +10,13 @@ Version 2.3.1 adds regression coverage and documentation only. Upgrading from
 2.3.0 requires no new migration or step conversion. All eleven migration files
 remain unchanged; upgrades from earlier versions still apply their pending files.
 
+### v2.3.3 test correction
+
+Version 2.3.3 preserves the v2.3.2 runtime and corrects one PostgreSQL test fixture.
+It adds no migration, dependency, configuration or consumer conversion. The
+v2.3.2 tag remains published but its PostgreSQL CI failed on the invalid fixture;
+use v2.3.3 for the corrected source release.
+
 ### v2.3.2 hardening
 
 Version 2.3.2 also requires no new migration, dependency or Step

@@ -1,5 +1,22 @@
 # Current state — 2026-11-16
 
+## v2.3.3 PostgreSQL fixture correction — 2026-11-16
+
+The v2.3.2 source was published at `1d4a9a8a90a8191a068f8cebd550ac7c84265045`,
+but PostgreSQL CI rejected `missing-failure` as an invalid UUID in the new
+heartbeat regression. The isolated local PostgreSQL reproduction failed for that
+same cause after eleven successful assertions. A generated absent UUID preserves
+the missing-record case; all 25 durable-failure tests / 152 assertions now pass
+on PostgreSQL. No runtime, API, dependency, configuration or migration changes.
+The v2.3.2 tag is immutable; v2.3.3 carries the test/documentation correction.
+
+The final fresh package suite passes **572 tests / 5210 assertions** in 406.98
+seconds (SQLite features plus real MySQL collisions). The exhaustive reference
+host rerun passes **64 tests / 452 assertions**. Package Pint and strict Composer
+validation pass. All five eligible correction paths are included. Remote source
+publication and exact-SHA CI are verified separately by the release workflow; see
+[the v2.3.3 release](https://github.com/brunocfalcao/scarlett/releases/tag/v2.3.3).
+
 ## v2.3.2 admission and execution hardening — 2026-11-16
 
 Complete release candidate from v2.3.1
