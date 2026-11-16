@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
@@ -9,6 +10,7 @@ use Illuminate\Support\Str;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\Execution\Delivery;
+use Scarlett\Failures\Coordinator;
 use Scarlett\Jobs\ExecuteStep;
 use Scarlett\Models\StepRecord;
 use Scarlett\States\StateRegistry;
@@ -34,6 +36,36 @@ it('does not reload sibling steps for a heartbeat or guarded consumer write', fu
     }))->toBeTrue();
     expect($loaded)->toBe([$step->id])->and($writes)->toBe(1);
     expect($flow->fresh()->status)->toBe('running');
+});
+
+it('walks failure descendants through the indexed parent map', function () {
+    $childrenByParent = new class(['root' => collect([(object) ['key' => 'child']]), 'child' => collect([(object) ['key' => 'leaf']])]) extends Collection
+    {
+        public int $getCalls = 0;
+
+        public int $filterCalls = 0;
+
+        public function get($key, $default = null)
+        {
+            $this->getCalls++;
+
+            return parent::get($key, $default);
+        }
+
+        public function filter(?callable $callback = null)
+        {
+            $this->filterCalls++;
+
+            return parent::filter($callback);
+        }
+    };
+    $method = (new ReflectionClass(Coordinator::class))->getMethod('descendants');
+
+    $descendants = $method->invoke(app(Coordinator::class), $childrenByParent, 'root');
+
+    expect($descendants->pluck('key')->all())->toBe(['child', 'leaf'])
+        ->and($childrenByParent->filterCalls)->toBe(0)
+        ->and($childrenByParent->getCalls)->toBe(3);
 });
 
 it('restricts recovery candidates to indexed active states', function () {

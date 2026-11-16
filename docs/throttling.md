@@ -17,8 +17,10 @@ Add policies to your application's `config/scarlett.php`:
 ],
 ```
 
-Both settings must be positive integers. A missing or malformed policy throws;
-it never silently becomes unlimited. Policy names are exact, including case.
+Both settings must be positive integers, and `per_seconds` must fit the
+millisecond timestamp storage range at validation time. A missing or malformed
+policy throws; it never silently becomes unlimited. Policy names are exact,
+including case.
 The empty package configuration imposes no limit on existing steps.
 
 A quota of 20 per 60 seconds permits an initial burst of 20. Use one admission

@@ -64,13 +64,15 @@ final class PayloadCodec
         if ($value instanceof ModelReference) {
             return ['type' => 'model', 'alias' => $value->alias, 'id' => $value->id, 'connection' => $value->connection];
         }
-        foreach (config('scarlett.payload_mappers', []) as $alias => $class) {
-            $mapper = app($class);
-            if (! $mapper instanceof PayloadMapper) {
-                throw new InvalidArgumentException('Payload mappers must implement PayloadMapper.');
-            }
-            if (is_object($value) && $mapper->supports($value)) {
-                return ['type' => 'mapped', 'alias' => $alias, 'data' => $this->pack($mapper->encode($value))];
+        if (is_object($value)) {
+            foreach (config('scarlett.payload_mappers', []) as $alias => $class) {
+                $mapper = app($class);
+                if (! $mapper instanceof PayloadMapper) {
+                    throw new InvalidArgumentException('Payload mappers must implement PayloadMapper.');
+                }
+                if ($mapper->supports($value)) {
+                    return ['type' => 'mapped', 'alias' => $alias, 'data' => $this->pack($mapper->encode($value))];
+                }
             }
         }
         throw new InvalidArgumentException('Unsupported payload type: '.get_debug_type($value).'. Register a mapper or use an explicit model reference/snapshot.');
@@ -78,7 +80,31 @@ final class PayloadCodec
 
     private function unpack(array $node): mixed
     {
-        return match ($node['type']) {
+        $type = $node['type'] ?? null;
+        if (! is_string($type)) {
+            throw new InvalidArgumentException('Malformed Scarlett payload node.');
+        }
+        $required = match ($type) {
+            'scalar', 'float' => ['data'],
+            'array', 'collection' => ['data'],
+            'date' => ['data'],
+            'enum', 'mapped' => ['alias', 'data'],
+            'model' => ['alias', 'id', 'connection'],
+            default => null,
+        };
+        if ($required === null) {
+            throw new InvalidArgumentException('Unknown Scarlett payload type.');
+        }
+        foreach ($required as $key) {
+            if (! array_key_exists($key, $node)) {
+                throw new InvalidArgumentException('Malformed Scarlett payload node.');
+            }
+        }
+        if (in_array($type, ['array', 'collection'], true) && ! is_array($node['data'])) {
+            throw new InvalidArgumentException('Malformed Scarlett payload node.');
+        }
+
+        return match ($type) {
             'scalar' => $node['data'],
             'float' => (float) $node['data'],
             'array' => array_map($this->unpack(...), $node['data']),
@@ -87,7 +113,6 @@ final class PayloadCodec
             'enum' => $this->registered('enums', $node['alias'])::from($node['data']),
             'mapped' => app($this->registered('payload_mappers', $node['alias']))->decode($this->unpack($node['data'])),
             'model' => $this->restoreModel($node),
-            default => throw new InvalidArgumentException('Unknown Scarlett payload type.'),
         };
     }
 
@@ -98,7 +123,7 @@ final class PayloadCodec
         return isset($node['timezone']) ? $date->setTimezone(new DateTimeZone($node['timezone'])) : $date;
     }
 
-    private function registered(string $registry, string $alias): string
+    private function registered(string $registry, string|int $alias): string
     {
         return config("scarlett.$registry", [])[$alias] ?? throw new InvalidArgumentException("Unknown $registry alias: $alias");
     }
@@ -111,6 +136,10 @@ final class PayloadCodec
             throw new InvalidArgumentException('Model aliases must reference Eloquent models.');
         }
 
-        return $model->setConnection($node['connection'])->newQuery()->findOrFail($node['id']);
+        if ($node['connection'] !== null) {
+            $model->setConnection($node['connection']);
+        }
+
+        return $model->newQuery()->findOrFail($node['id']);
     }
 }

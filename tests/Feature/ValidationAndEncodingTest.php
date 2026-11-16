@@ -137,6 +137,23 @@ it('rejects non-finite floats, unknown payload node types and invalid model alia
         ->toThrow(InvalidArgumentException::class, 'Eloquent models');
 });
 
+it('reports malformed payload nodes and unsupported resources without resolving mappers', function () {
+    $codec = app(PayloadCodec::class);
+    config(['scarlett.payload_mappers' => ['invalid' => stdClass::class]]);
+    $resource = fopen('php://memory', 'rb');
+
+    try {
+        expect(fn () => $codec->encode($resource))
+            ->toThrow(InvalidArgumentException::class, 'Unsupported payload type: resource');
+        expect(fn () => $codec->decode(['version' => 2, 'value' => []]))
+            ->toThrow(InvalidArgumentException::class, 'payload node');
+        expect(fn () => $codec->decode(['version' => 2, 'value' => ['type' => 'model', 'id' => 1, 'connection' => null]]))
+            ->toThrow(InvalidArgumentException::class, 'payload node');
+    } finally {
+        fclose($resource);
+    }
+});
+
 it('restores a ModelReference using its explicit database connection', function () {
     $altPath = tempnam(sys_get_temp_dir(), 'scarlett-model-conn-');
     try {
@@ -153,6 +170,31 @@ it('restores a ModelReference using its explicit database connection', function 
 
         expect($restored)->toBeInstanceOf(SourceRecord::class)
             ->and($restored->name)->toBe('from-alt')
+            ->and($restored->getConnectionName())->toBe('alt_source');
+    } finally {
+        DB::purge('alt_source');
+        if (is_file($altPath)) {
+            unlink($altPath);
+        }
+    }
+});
+
+it('restores a ModelReference using the model declared connection when no override is supplied', function () {
+    $altPath = tempnam(sys_get_temp_dir(), 'scarlett-model-default-');
+    try {
+        config([
+            'database.connections.alt_source' => ['driver' => 'sqlite', 'database' => $altPath, 'prefix' => ''],
+            'scarlett.models' => ['custom-source' => CustomConnectionSourceRecord::class],
+        ]);
+        Schema::connection('alt_source')->create('source_records', fn (Blueprint $table) => [$table->id(), $table->string('name')]);
+        $id = DB::connection('alt_source')->table('source_records')->insertGetId(['name' => 'from-declared-connection']);
+
+        $codec = app(PayloadCodec::class);
+        $encoded = $codec->encode(new ModelReference('custom-source', $id));
+        $restored = $codec->decode($encoded);
+
+        expect($restored)->toBeInstanceOf(CustomConnectionSourceRecord::class)
+            ->and($restored->name)->toBe('from-declared-connection')
             ->and($restored->getConnectionName())->toBe('alt_source');
     } finally {
         DB::purge('alt_source');
@@ -204,4 +246,9 @@ class ContextRequiredInvalidTestStep extends Step
 class ContextRequiredHandleInvalidTestStep extends Step
 {
     public function handle(Context $context): void {}
+}
+
+class CustomConnectionSourceRecord extends SourceRecord
+{
+    protected $connection = 'alt_source';
 }

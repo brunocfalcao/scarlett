@@ -2,12 +2,15 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\RecordsNotFoundException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Scarlett\Definition\Node;
+use Scarlett\Definition\Subject;
+use Scarlett\Definition\SubjectSlot;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\Execution\Context;
@@ -98,3 +101,32 @@ it('respects cooldown and an enclosing transaction rollback', function (bool $he
     expect(WorkflowRecord::forSubject('consumer', $subject)->count())->toBe(0);
     Queue::assertNothingPushed();
 })->with([false, true]);
+
+it('fails closed when the admission control row is missing', function (string $operation) {
+    $engine = app(Engine::class);
+    $subject = (string) Str::uuid();
+    $flow = $engine->start(new Workflow([controlled('existing')], 'subject', $subject));
+    $before = $flow->fresh()->getAttributes();
+    $callbackCalled = false;
+    $callback = function () use (&$callbackCalled): Workflow {
+        $callbackCalled = true;
+
+        return new Workflow([controlled('replacement')]);
+    };
+    Queue::fake();
+    expect(DB::table('scarlett_control')->where('id', 'admission')->exists())->toBeTrue();
+    DB::table('scarlett_control')->where('id', 'admission')->delete();
+
+    expect(fn () => match ($operation) {
+        'start' => $engine->start(new Workflow([controlled('missing-control')], 'subject', $subject)),
+        'replace' => $engine->replace(new SubjectSlot('subject', $subject, 'current'), $callback),
+        'withAdmission' => $engine->withAdmission($callback),
+        'deleteSubject' => $engine->deleteSubject(new Subject('subject', $subject), $callback),
+        'cooldown' => $engine->cooldown(),
+        'reopen' => $engine->reopen(),
+    })->toThrow(RecordsNotFoundException::class);
+    expect($callbackCalled)->toBeFalse()
+        ->and($flow->fresh()->getAttributes())->toBe($before)
+        ->and(WorkflowRecord::forSubject('subject', $subject)->pluck('id')->all())->toBe([$flow->id]);
+    Queue::assertNothingPushed();
+})->with(['start', 'replace', 'withAdmission', 'deleteSubject', 'cooldown', 'reopen']);

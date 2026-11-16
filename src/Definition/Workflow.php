@@ -34,6 +34,11 @@ final readonly class Workflow
         if (($this->subjectType === null) !== ($this->subjectId === null)) {
             throw new InvalidArgumentException('A workflow subject requires both its type and its identifier.');
         }
+        $this->validateBoundedString($this->subjectType, 'subject type');
+        $this->validateBoundedString($this->subjectId, 'subject identifier');
+        $this->validateUtf8($this->title, 'workflow title');
+        $this->validateUtf8($this->description, 'workflow description');
+        $this->validateUtf8($this->canonical, 'workflow canonical name');
         foreach ([$this->subjectType, $this->subjectId] as $value) {
             if ($value !== null && $value === '') {
                 throw new InvalidArgumentException('Workflow subject values must not be empty.');
@@ -46,9 +51,15 @@ final readonly class Workflow
             if (! $node instanceof Node || $node->key === '') {
                 throw new InvalidArgumentException('Each step needs a non-empty identity.');
             }
-            if (mb_strlen($node->key, 'UTF-8') > Node::MAX_KEY_LENGTH) {
-                throw new InvalidArgumentException('Step identity exceeds the storage length limit.');
-            }
+            $this->validateBoundedString($node->key, 'step identity', Node::MAX_KEY_LENGTH);
+            $this->validateBoundedString($node->step, 'step class');
+            $this->validateBoundedString($node->parent, 'parent identity', Node::MAX_KEY_LENGTH);
+            $this->validateBoundedString($node->rescues, 'rescue identity', Node::MAX_KEY_LENGTH);
+            $this->validateBoundedString($node->queue, 'queue');
+            $this->validateBoundedString($node->connection, 'connection');
+            $this->validateUtf8($node->title, 'step title');
+            $this->validateUtf8($node->description, 'step description');
+            $this->validateUtf8($node->canonical, 'step canonical name');
             if (isset($indexed[$node->key])) {
                 throw new InvalidArgumentException("Duplicate step identity: {$node->key}");
             }
@@ -86,6 +97,21 @@ final readonly class Workflow
             } elseif ($value !== null && ! is_scalar($value)) {
                 throw new InvalidArgumentException('Workflow metadata accepts JSON values only.');
             }
+        }
+    }
+
+    private function validateBoundedString(?string $value, string $field, int $maximum = 255): void
+    {
+        $this->validateUtf8($value, $field);
+        if ($value !== null && mb_strlen($value, 'UTF-8') > $maximum) {
+            throw new InvalidArgumentException("$field exceeds the storage length limit.");
+        }
+    }
+
+    private function validateUtf8(?string $value, string $field): void
+    {
+        if ($value !== null && ! mb_check_encoding($value, 'UTF-8')) {
+            throw new InvalidArgumentException("$field must be valid UTF-8.");
         }
     }
 

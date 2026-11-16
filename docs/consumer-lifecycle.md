@@ -66,7 +66,9 @@ holding another workflow/consumer lock. All transactional writes must use the
 same database connection. Laravel may retry deadlocked transactions under
 `scarlett.transaction_attempts`; callbacks must be replay-safe database work,
 with external effects scheduled after commit. No consumer replacement retry loop
-is needed. An enclosing transaction keeps publication deferred until its commit.
+is needed. The admission control row is required; if it is missing, the operation
+fails closed before any workflow or consumer write. An enclosing transaction keeps
+publication deferred until its commit.
 
 ## Read current workflows for a page of subjects
 
@@ -254,8 +256,11 @@ also waits for already-running descendants that could subsequently fail. Sibling
 have no promised relative order. Rescue nodes activate from their target's settled
 failure, independently of handler completion. A parent with a failed child stays
 `waitingforchildren` until its children and their rescue branches settle; only
-then does it fail, register its own hook and admit its own rescues. This includes
-already-running siblings, nested resolver children and rescues of failed resolvers.
+then does it fail, register its own hook and admit its own rescues. A parent with
+a cancelled child waits for running siblings and descendant branches. If no child
+failure occurs, it then settles as cancelled without verification, a failure hook
+or rescue activation; a sibling failure takes the normal failure path. This
+includes nested resolver children and rescues of failed resolvers.
 Use rescue nodes
 for a distinct recovery workflow; do not duplicate the same business effect in
 both a rescue and a failure hook.

@@ -10,6 +10,22 @@ Version 2.3.1 adds regression coverage and documentation only. Upgrading from
 2.3.0 requires no new migration or step conversion. All eleven migration files
 remain unchanged; upgrades from earlier versions still apply their pending files.
 
+### v2.3.2 hardening
+
+Version 2.3.2 also requires no new migration, dependency or Step
+Dispatcher conversion. It hardens fail-closed admission, shared attempt locking,
+outbox publication, cancellation settlement, indexed descendant traversal,
+batched reopening callbacks, configuration/UTF-8/storage validation and payload
+restoration. Existing rows and all eleven published migration files remain
+unchanged. Run the consumer's ordinary migration command anyway to confirm that
+the installed revision has no pending files before restarting workers.
+
+Focused compatibility coverage reproduced the old direct-construction call shapes
+and passed after optional stateless helper defaults were added to Engine,
+coordinator and both delivery services. Container/facade resolution remains the
+recommended consumer path. Verification and publication evidence are recorded in
+[the current-state record](WhereAreWe.md) and the versioned GitHub Release.
+
 Follow the [installation guide](README.md#install) and choose the package revision
 you will validate. Use the tagged `^2.3` Composer constraint for this API.
 Existing Scarlett 1.x consumers should follow the

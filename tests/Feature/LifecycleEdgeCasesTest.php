@@ -298,6 +298,38 @@ it('settles a WaitingForChildren parent as Cancelled without re-verifying when a
         ->and(LifecycleEdgeStep::$verifications)->toBe(0);
 });
 
+it('waits for running siblings before settling a WaitingForChildren parent after cancellation', function () {
+    $engine = app(Engine::class);
+    $flow = $engine->start(new Workflow([
+        controlled('parent'),
+        controlled('running-child', parent: 'parent'),
+        controlled('cancelled-child', parent: 'parent'),
+        controlled('pending-child', parent: 'parent'),
+    ]));
+
+    runStep($flow->id, 'parent');
+    $running = $flow->steps()->where('key', 'running-child')->sole();
+    $cancelled = $flow->steps()->where('key', 'cancelled-child')->sole();
+    expect($engine->claim($running->id, $running->attempt))->not->toBeNull();
+    expect($engine->cancel($cancelled->id))->toBeTrue();
+
+    expect(statesOf($flow->id))->toMatchArray([
+        'parent' => 'waitingforchildren',
+        'running-child' => 'running',
+        'cancelled-child' => 'cancelled',
+        'pending-child' => 'cancelled',
+    ])->and($flow->fresh()->status)->toBe('running');
+
+    expect($engine->saveAction($running->id, $running->attempt, null, Completed::class))->toBeTrue();
+    expect($engine->finish($running->id, $running->attempt))->toBeTrue();
+    expect(statesOf($flow->id))->toMatchArray([
+        'parent' => 'cancelled',
+        'running-child' => 'completed',
+        'cancelled-child' => 'cancelled',
+        'pending-child' => 'cancelled',
+    ])->and($flow->fresh()->status)->toBe('cancelled');
+});
+
 it('deletes an active workflow via History::delete(..., includingRunning: true) and rejects non-positive batch sizes', function () {
     $flow = app(Engine::class)->start(new Workflow([
         new Node('fail-me', FallbackOnlyFailureStep::class, inputs: ['label' => 'x']),

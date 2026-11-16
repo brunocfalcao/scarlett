@@ -21,16 +21,26 @@ final class Admission
         app(Configuration::class)->validate();
 
         return DB::transaction(function () use ($operation): mixed {
-            DB::table('scarlett_control')->where('id', 'admission')->sharedLock()->sole();
+            $this->lockShared();
 
             return $operation();
         }, (int) config('scarlett.transaction_attempts'));
     }
 
+    public function lockShared(): object
+    {
+        return DB::table('scarlett_control')->where('id', 'admission')->sharedLock()->sole();
+    }
+
+    public function lockExclusive(): object
+    {
+        return DB::table('scarlett_control')->where('id', 'admission')->lockForUpdate()->sole();
+    }
+
     public function cooldown(): void
     {
         DB::transaction(function (): void {
-            DB::table('scarlett_control')->where('id', 'admission')->lockForUpdate()->first();
+            $this->lockExclusive();
             DB::table('scarlett_control')->where('id', 'admission')->update(['cooldown' => true]);
         });
     }
@@ -38,12 +48,16 @@ final class Admission
     public function reopen(): void
     {
         DB::transaction(function (): void {
-            DB::table('scarlett_control')->where('id', 'admission')->lockForUpdate()->first();
+            $this->lockExclusive();
             DB::table('scarlett_control')->where('id', 'admission')->update(['cooldown' => false]);
-            foreach (WorkflowRecord::where('status', 'held')->lockForUpdate()->get() as $workflow) {
+            $workflowIds = [];
+            foreach (WorkflowRecord::where('status', 'held')->orderBy('id')->lockForUpdate()->get() as $workflow) {
                 $workflow->update(['status' => 'running', 'started_at' => now()]);
                 app(Progression::class)->advance($workflow);
-                app(Delivery::class)->afterCommit($workflow->id);
+                $workflowIds[] = $workflow->id;
+            }
+            if ($workflowIds !== []) {
+                app(Delivery::class)->afterCommitMany($workflowIds);
             }
         }, (int) config('scarlett.transaction_attempts'));
     }

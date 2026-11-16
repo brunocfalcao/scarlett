@@ -11,6 +11,7 @@ use Scarlett\Engine;
 use Scarlett\Execution\Decision;
 use Scarlett\Execution\Delivery;
 use Scarlett\Inputs\PayloadCodec;
+use Scarlett\Jobs\ExecuteStep;
 use Scarlett\Models\StepRecord;
 use Scarlett\Recovery;
 use Scarlett\States\Completed;
@@ -29,6 +30,26 @@ it('holds new workflows during cooldown but drains started workflows', function 
     expect(statesOf($first->id))->toBe(['a' => 'completed', 'b' => 'queued']);
     app(Admission::class)->reopen();
     expect(statesOf($held->id))->toBe(['held' => 'queued']);
+});
+
+it('registers one delivery callback when reopening multiple held workflows', function () {
+    $engine = app(Engine::class);
+    $engine->cooldown();
+    $first = $engine->start(new Workflow([controlled('held-first')]));
+    $second = $engine->start(new Workflow([controlled('held-second')]));
+
+    DB::beginTransaction();
+    $engine->reopen();
+
+    $callbacks = app('db.transactions')->getCommittedTransactions()->flatMap(
+        fn ($transaction) => $transaction->getCallbacks(),
+    );
+    expect($callbacks)->toHaveCount(1);
+
+    DB::commit();
+    expect(statesOf($first->id))->toBe(['held-first' => 'queued'])
+        ->and(statesOf($second->id))->toBe(['held-second' => 'queued']);
+    Queue::assertPushed(ExecuteStep::class, 2);
 });
 it('recovers expired ownership and rejects the old worker outcome', function () {
     config(['scarlett.lease_seconds' => 20, 'scarlett.worker_timeout' => 10]);

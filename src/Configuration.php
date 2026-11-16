@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace Scarlett;
 
+use BackedEnum;
+use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
 use Scarlett\Contracts\PayloadMapper;
 use Scarlett\Definition\ExecutionOptions;
+use Scarlett\Execution\ThrottleReservations;
 use Scarlett\Policies\ExceptionHandler;
+use Scarlett\Policies\RetryPolicy;
 use Scarlett\States\StateRegistry;
 
 /**
@@ -41,6 +45,37 @@ final class Configuration
         foreach (config('scarlett.payload_mappers', []) as $mapper) {
             if (! is_string($mapper) || ! is_subclass_of($mapper, PayloadMapper::class)) {
                 throw new InvalidArgumentException('scarlett.payload_mappers entries must implement PayloadMapper.');
+            }
+        }
+        $retryPolicy = config('scarlett.retry_policy');
+        if (! is_string($retryPolicy) || ! is_a($retryPolicy, RetryPolicy::class, true)) {
+            throw new InvalidArgumentException('scarlett.retry_policy must extend RetryPolicy.');
+        }
+        $this->validateClassAliases('enums', BackedEnum::class, 'BackedEnum');
+        $this->validateClassAliases('models', Model::class, 'Eloquent models');
+        $throttles = config('scarlett.throttles', []);
+        if (! is_array($throttles)) {
+            throw new InvalidArgumentException('scarlett.throttles must be an array.');
+        }
+        foreach ($throttles as $name => $policy) {
+            if ((! is_string($name) && ! is_int($name)) || $name === '' || ! is_array($policy)
+                || ! is_int($policy['max_requests'] ?? null) || $policy['max_requests'] < 1
+                || ! is_int($policy['per_seconds'] ?? null) || $policy['per_seconds'] < 1
+                || $policy['per_seconds'] > intdiv(PHP_INT_MAX - now()->getTimestampMs(), ThrottleReservations::MILLISECONDS_PER_SECOND)) {
+                throw new InvalidArgumentException('scarlett.throttles entries require a non-empty name and positive integer max_requests and per_seconds.');
+            }
+        }
+    }
+
+    private function validateClassAliases(string $registry, string $baseClass, string $label): void
+    {
+        $aliases = config("scarlett.$registry", []);
+        if (! is_array($aliases)) {
+            throw new InvalidArgumentException("scarlett.$registry must be an array.");
+        }
+        foreach ($aliases as $class) {
+            if (! is_string($class) || ! is_subclass_of($class, $baseClass, true)) {
+                throw new InvalidArgumentException("scarlett.$registry entries must reference $label classes.");
             }
         }
     }

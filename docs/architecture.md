@@ -34,11 +34,12 @@ handler capture, so its database write does not reopen the connection before wor
 Stages create dependencies on all earlier siblings within the same parent/rescue
 group. `FromResult` supplies a value; it does not create a dependency itself.
 
-`Engine` locks the workflow before changing an attempt. `Progression` then runs
-until no further eligibility or settlement changes remain. Enqueuing writes a new
-attempt token and a delivery intent in the same transaction. `Delivery` publishes
-after the outermost commit. A transport error leaves recoverable intent instead of
-rolling back a completed business action.
+`Engine` uses the shared `WorkflowAttemptLock` to lock the workflow and attempt
+before changing an attempt. `Progression` then runs until no further eligibility or
+settlement changes remain. Enqueuing writes a new attempt token and a delivery
+intent in the same transaction. Step and failure delivery share `OutboxPublisher`
+and publish after the outermost commit. A transport error leaves recoverable intent
+instead of rolling back a completed business action.
 
 `Runner` claims once, restores inputs, constructs the step and checks ownership
 between lifecycle hooks. Action persistence precedes verification. On redelivery
@@ -60,13 +61,13 @@ must not cross those boundaries. See [connection lifetime](database-connections.
 | `Execution/ConnectionRelease` | Opt-in default-connection lifetime | Release only outside transactions; preserve memory SQLite; next query reconnects |
 | `Execution/Invoker` | Typed constructor/handler calls | Explicit names, exact Context injection and strict PHP invocation |
 | `Execution/Signature` | Declaration metadata and actual argument diagnostics | No eager defaults; current-attempt writes; no service/context serialization; diagnostic encoding failure does not reject an otherwise valid argument |
-| `Engine`, `Execution/Context` | Claims, leases and guarded mutations | A current token, running phase and future lease are all required |
+| `Engine`, `Execution/WorkflowAttemptLock`, `Execution/Context` | Claims, leases and guarded mutations | A current token, running phase and future lease are all required; step and failure records share the workflow lock |
 | `Execution/Journal`, `States` | Transitions and durable diagnostics | State semantics drive dependency, recovery and retention consistently |
 | `Execution/Progression` | Sibling barriers and subtree settlement | Rescue success never erases the original failure |
 | `Execution/RuntimeChildren` | One atomic closed plan per action | Namespace local keys; persist handoff and children together |
-| `Execution/Delivery`, `Jobs` | Queue transport | Primitive envelopes, after-commit publication, duplicate-safe claims |
+| `Execution/Delivery`, `Failures/Delivery`, `Execution/OutboxPublisher`, `Jobs` | Queue transport | Primitive envelopes, shared after-commit publication, duplicate-safe claims and recoverable intents |
 | `Failures` | Durable terminal hooks | Separate attempts; child hooks settle before parent hooks |
-| `Admission`, `WorkflowSlots`, `SubjectDeletion` | Admission and subject ownership | Engine locks precede consumer locks; veto rolls back all writes |
+| `Admission`, `WorkflowSlots`, `SubjectDeletion` | Admission and subject ownership | Engine locks precede consumer locks; the control row is required; missing admission fails closed; veto rolls back all writes |
 | `Policies/RateLimit`, `Execution/ThrottleReservations` | Shared rolling-window admission | Workflow/step/quota lock order; one grant per current attempt; waits do not spend failure retries |
 | `Recovery`, `Commands` | Repair and retention entrypoints | No normal progression polling and no package-owned schedules |
 | `History`, `Models` | Retained records and explicit cleanup | Lock and recheck settlement; never bypass the engine with direct model writes |
@@ -107,12 +108,15 @@ parent commits one child plan, waits for its subtree, optionally adopts a direct
 child's result, then receives a verification attempt. Neither path releases its
 successors before the parent settles successfully.
 
-A failed child closes unstarted ordinary sibling admission. Running siblings and
-all descendant rescue branches drain before the parent fails and activates its
-own rescues. Rescues of failed rescues follow the same bottom-up rule. Durable
-failure hooks are a separate path: their coordinator waits for ordinary descendant
-hooks, while rescue progression does not wait for hooks. Workflow settlement waits
-for both step settlement and unfinished failure records.
+A failed or cancelled child closes unstarted ordinary sibling admission. Running
+siblings and all descendant rescue branches drain before the parent settles. A
+failed parent then activates its own rescues. When no child failure occurs, a
+cancelled parent settles without verification, failure-hook or rescue activation;
+if a running sibling fails, normal failure propagation wins. Rescues of failed
+rescues follow the same bottom-up rule. Durable failure hooks are a separate path:
+their coordinator waits for ordinary descendant hooks, while rescue progression
+does not wait for hooks. Workflow settlement waits for both step settlement and
+unfinished failure records.
 
 `onException()` classifies errors in a live action path. It cannot run after a
 worker is killed. Terminal effects belong in `onFailure()`; reconstruction failure

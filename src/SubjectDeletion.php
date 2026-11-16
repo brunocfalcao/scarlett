@@ -34,7 +34,7 @@ final class SubjectDeletion
         try {
             return DB::transaction(function () use ($subject, $prepare, $guardSubjects): bool {
                 // Freeze admission/replacement before taking workflow and consumer locks.
-                DB::table('scarlett_control')->where('id', 'admission')->lockForUpdate()->sole();
+                app(Admission::class)->lockExclusive();
                 $locked = $this->lockWorkflows([$subject, ...$guardSubjects]);
                 $targets = $locked->filter(fn (WorkflowRecord $workflow): bool => $subject->matches($workflow->subject_type, $workflow->subject_id))->modelKeys();
                 $approved = $prepare($locked);

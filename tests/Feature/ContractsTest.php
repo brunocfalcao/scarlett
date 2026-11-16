@@ -7,7 +7,15 @@ use Scarlett\Configuration;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
+use Scarlett\Execution\Decision;
+use Scarlett\Execution\Delivery;
+use Scarlett\Execution\Journal;
+use Scarlett\Execution\Progression;
+use Scarlett\Failures\Coordinator;
+use Scarlett\Failures\Status;
 use Scarlett\Inputs\PayloadCodec;
+use Scarlett\Jobs\ExecuteFailure;
+use Scarlett\Jobs\ExecuteStep;
 use Scarlett\States\Running;
 use Scarlett\States\Skipped;
 use Scarlett\States\WaitingForChildren;
@@ -16,7 +24,35 @@ use Scarlett\Tests\Fixtures\AmountMapper;
 use Scarlett\Tests\Fixtures\Approved;
 use Scarlett\Tests\Fixtures\ApproveStep;
 use Scarlett\Tests\Fixtures\CompletionStep;
+use Scarlett\Tests\Fixtures\FailureAwareStep;
 use Scarlett\Tests\Fixtures\GuardedApproval;
+
+it('preserves published construction while coordinating action and failure attempts', function (string $construction) {
+    Queue::fake();
+    $journal = app(Journal::class);
+    $delivery = $construction === 'step delivery' ? new Delivery : app(Delivery::class);
+    $failureDelivery = $construction === 'failure delivery' ? new Scarlett\Failures\Delivery : app(Scarlett\Failures\Delivery::class);
+    $coordinator = $construction === 'coordinator' ? new Coordinator : app(Coordinator::class);
+    $engine = $construction === 'engine'
+        ? new Engine(app(PayloadCodec::class), new Progression($journal), $journal, $delivery)
+        : app(Engine::class);
+    $flow = $engine->start(new Workflow([
+        new Node('action', FailureAwareStep::class, inputs: ['name' => 'compatibility']),
+    ]));
+    $step = $flow->steps()->sole();
+    expect((string) $step->state)->toBe('queued');
+    expect($engine->claim($step->id, $step->attempt)?->id)->toBe($step->id);
+    expect($engine->decide($step->id, $step->attempt, Decision::fail('compatibility')))->toBeTrue();
+    $failure = $flow->failures()->sole();
+    expect($failure->status)->toBe(Status::Queued);
+    $failureDelivery->flush($flow->id);
+    $delivery->flush($flow->id);
+    expect($coordinator->claim($failure->id, $failure->attempt)?->id)->toBe($failure->id)
+        ->and($coordinator->complete($failure->id, $failure->attempt))->toBeTrue()
+        ->and($flow->fresh()->status)->toBe('failed');
+    Queue::assertPushed(ExecuteStep::class, 1);
+    Queue::assertPushed(ExecuteFailure::class, 1);
+})->with(['container control', 'engine', 'coordinator', 'step delivery', 'failure delivery']);
 
 it('keeps accepted exceptions behind mandatory verification and preserves zero results', function () {
     Queue::fake();

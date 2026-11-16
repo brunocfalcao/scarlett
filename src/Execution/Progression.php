@@ -57,8 +57,16 @@ final class Progression
                         continue;
                     }
                     if ($children->contains(fn ($child): bool => $child->state::phase() === Phase::Settled && ! $child->state::satisfiesDependency())) {
-                        $this->journal->transition($step, Cancelled::class, 'A child was cancelled.');
-                        $changed = true;
+                        foreach ($children as $child) {
+                            if (in_array($child->state::phase(), [Phase::Pending, Phase::Queued], true)) {
+                                $this->journal->transition($child, Cancelled::class, 'A sibling was cancelled.');
+                                $changed = true;
+                            }
+                        }
+                        if ($children->every(fn (StepRecord $child): bool => $this->branchSettled($child, $branchesByOwner))) {
+                            $this->journal->transition($step, Cancelled::class, 'A child was cancelled.');
+                            $changed = true;
+                        }
 
                         continue;
                     }
@@ -96,7 +104,13 @@ final class Progression
                         continue;
                     }
                 }
-                $dependencies = $steps->filter(fn (StepRecord $candidate): bool => in_array($candidate->key, $step->dependencies, true));
+                $dependencies = collect();
+                foreach ($step->dependencies as $dependencyKey) {
+                    $dependency = $steps->get($dependencyKey);
+                    if ($dependency !== null) {
+                        $dependencies->push($dependency);
+                    }
+                }
                 if ($dependencies->contains(fn ($dependency): bool => $dependency->state::phase() === Phase::Settled && ! $dependency->state::satisfiesDependency())) {
                     $this->journal->transition($step, Cancelled::class, 'Prerequisite did not succeed.');
                     $changed = true;

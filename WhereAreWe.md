@@ -1,4 +1,40 @@
-# Current state — 2026-11-15
+# Current state — 2026-11-16
+
+## v2.3.2 admission and execution hardening — 2026-11-16
+
+Complete release candidate from v2.3.1
+(`715cfea5b504146daaf4e942501ac12ab3a8898a`), including every eligible
+staged, unstaged and untracked package change. Installed dependencies and runtime
+caches are excluded. The reference host is verification-only; canonical workspace
+documentation is maintained outside the package repository.
+
+Cancellation waits for running siblings and descendant branches before settling
+their parent. Admission requires its control row and rejects malformed configuration
+and invalid stored strings earlier. Model references preserve their model-declared
+connection unless explicitly overridden. Numeric aliases remain supported.
+Attempt locking and outbox delivery share focused helpers; indexed traversal,
+batched reopening callbacks and failure heartbeats avoid redundant work.
+
+Refactor review caught four constructor compatibility regressions in the incoming
+helper extraction. All four old call shapes failed with `ArgumentCountError` while
+the container control passed. Optional helper defaults preserve those calls. The
+targeted rerun passes **59 tests / 377 assertions**, including missing-control and
+failure-lease regressions. The obsolete `ReflectionMethod::setAccessible` test call
+was removed after checking PHP 8.5 deprecation guidance.
+
+The final reference-host suite passes **64 tests / 452 assertions** against this
+exact package symlink. It runs exhaustively under the existing no-Git bootstrap
+exception. The final fresh package suite passes **572 tests / 5210 assertions**
+(417.43 seconds), using SQLite feature tests and real MySQL collision tests. Package
+Pint and strict Composer validation pass. Remote publication and its six-lane
+PHP/database CI matrices are verified separately by the release workflow; see the
+[v2.3.2 source release](https://github.com/brunocfalcao/scarlett/releases/tag/v2.3.2).
+
+All eleven published migrations retain their bytes; no schema or dependency change.
+Existing definitions and step classes need no conversion. See [the changelog](CHANGELOG.md)
+and [migration guide](migration-from-step-dispatcher.md). Source publication does
+not migrate or deploy consumers, submit to a registry, or establish browser,
+provider or production-capacity acceptance. The dated results below are historical.
 
 ## v2.3.1 runtime-child cooldown coverage — 2026-11-15
 

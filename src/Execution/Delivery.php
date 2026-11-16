@@ -18,9 +18,21 @@ use Throwable;
  */
 final class Delivery
 {
+    public function __construct(private OutboxPublisher $publisher = new OutboxPublisher) {}
+
     public function afterCommit(string $workflowId): void
     {
-        DB::afterCommit(fn () => $this->flush($workflowId));
+        $this->afterCommitMany([$workflowId]);
+    }
+
+    /** @param list<string> $workflowIds */
+    public function afterCommitMany(array $workflowIds): void
+    {
+        DB::afterCommit(function () use ($workflowIds): void {
+            foreach ($workflowIds as $workflowId) {
+                $this->flush($workflowId);
+            }
+        });
     }
 
     /** At-least-once transport; the worker's attempt claim suppresses duplicates. */
@@ -46,26 +58,25 @@ final class Delivery
             return;
         }
         $steps = StepRecord::whereKey($pending->pluck('step_id'))->get()->keyBy('id');
-        foreach ($pending as $delivery) {
-            $step = $steps->get($delivery->step_id);
-            if (! $step || $step->attempt !== $delivery->attempt || $step->state::phase() !== Phase::Queued) {
-                continue;
-            }
-            $claimed = $this->unclaimed()->where('id', $delivery->id)->whereNull('sent_at')
-                ->update(['publishing_until' => now()->addSeconds((int) config('scarlett.delivery_retry_seconds'))]);
-            if ($claimed === 0) {
-                continue;
-            }
-            try {
+        $this->publisher->publish(
+            $pending,
+            function ($delivery) use ($steps): bool {
+                $step = $steps->get($delivery->step_id);
+                if (! $step || $step->attempt !== $delivery->attempt || $step->state::phase() !== Phase::Queued) {
+                    return false;
+                }
+
+                return $this->unclaimed()->where('id', $delivery->id)->whereNull('sent_at')
+                    ->update(['publishing_until' => now()->addSeconds((int) config('scarlett.delivery_retry_seconds'))]) > 0;
+            },
+            function ($delivery) use ($steps): void {
+                $step = $steps->get($delivery->step_id);
                 Bus::dispatch((new ExecuteStep($step->id, $delivery->attempt, $step->executionOptions()['worker_timeout']))
                     ->onConnection($step->connection)->onQueue($step->queue)->delay($step->available_at));
-                DB::table('scarlett_deliveries')->where('id', $delivery->id)->update(['sent_at' => now(), 'publishing_until' => null, 'updated_at' => now()]);
-            } catch (Throwable $exception) {
-                // The intent stays durable. Do not turn a transport failure into a repeated business action.
-                DB::table('scarlett_deliveries')->where('id', $delivery->id)->update(['publishing_until' => null]);
-                report($exception);
-            }
-        }
+            },
+            fn ($delivery): int => DB::table('scarlett_deliveries')->where('id', $delivery->id)->update(['sent_at' => now(), 'publishing_until' => null, 'updated_at' => now()]),
+            fn ($delivery): int => DB::table('scarlett_deliveries')->where('id', $delivery->id)->update(['publishing_until' => null]),
+        );
     }
 
     public function replayable(StepRecord $step): Builder

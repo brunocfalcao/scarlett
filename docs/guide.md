@@ -273,8 +273,10 @@ flowchart TD
 | `execution` | Persist per-step timeouts and retry settings when the workflow starts. |
 
 Skip produces no result and skips unstarted descendants. Failure/stop cancels
-unstarted dependent work; already-running siblings retain their own ownership.
-Cancellation revokes authority but cannot interrupt an external call already running.
+unstarted dependent work; already-running siblings retain their own ownership, and
+the affected parent waits for running siblings and descendant rescue branches to
+settle. Cancellation revokes authority but cannot interrupt an external call already
+running.
 Unused rescue branches are skipped. **A successful rescue does not erase the original
 failure, reopen cancelled successors, or turn a failed workflow into a successful one.**
 
@@ -365,8 +367,18 @@ Scarlett's versioned JSON representation and are restored when execution begins.
 
 Bare Eloquent models, arbitrary objects, closures and resources are rejected.
 Dates preserve named timezones; the codec also reads older version-1 date payloads.
-Version mapper aliases when their representation changes. A mapper's encoded value
-must itself be supported by the codec.
+Configured enum, model and throttle registries may use string or integer aliases.
+Each visited payload node validates its type and required keys; unsupported
+resources fail without mapper resolution. When a `ModelReference` omits its connection
+override, restoration retains the model's declared connection; an explicit
+connection still wins. Version mapper aliases when their representation changes.
+A mapper's encoded value must itself be supported by the codec.
+
+Admission validates the configured retry policy, state/transition registry,
+payload-mapper and model/enum registries, throttle shapes and storage bounds before
+persisting work. Workflow subjects, routing identities and step keys must be valid
+UTF-8 and fit their storage limits; labels must be valid UTF-8. A missing Scarlett
+admission control row fails closed rather than allowing an unguarded start.
 
 `FromResult` is a top-level named binding to an earlier sibling, parent action or
 rescue target. It does not evaluate closures or expressions. A rescue target or

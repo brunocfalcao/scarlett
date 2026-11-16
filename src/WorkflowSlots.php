@@ -23,7 +23,7 @@ final class WorkflowSlots
         try {
             return DB::transaction(function () use ($slot, $prepare): WorkflowRecord {
                 // Admission always precedes workflow locks, including held-work reopening.
-                DB::table('scarlett_control')->where('id', 'admission')->sharedLock()->first();
+                app(Admission::class)->lockShared();
                 // Updating the duplicate key takes an exclusive lock, avoiding shared-lock upgrade races.
                 DB::table('scarlett_subject_slots')->upsert([
                     'id' => $slot->id(), 'subject_type' => $slot->subjectType, 'subject_id' => $slot->subjectId,

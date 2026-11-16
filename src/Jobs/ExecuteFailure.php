@@ -25,7 +25,12 @@ final class ExecuteFailure implements ShouldQueue
 
     public bool $failOnTimeout = true;
 
-    public function __construct(public string $failureId, public string $attempt, public int $timeout) {}
+    public int $timeout;
+
+    public function __construct(public string $failureId, public string $attempt, ?int $timeout = null)
+    {
+        $this->timeout = $timeout ?? (int) config('scarlett.worker_timeout');
+    }
 
     public function handle(Runner $runner): void
     {

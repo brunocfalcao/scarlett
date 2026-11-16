@@ -24,7 +24,7 @@ flowchart LR
     Slug --> Result["hello-laravel"]
 ```
 
-Version 2.3.1 strengthens regression coverage for runtime children during cooldown.
+Version 2.3.2 hardens cancellation, admission validation and payload restoration.
 Version 2.3 adds workflow/step labels and automatic step argument recording.
 See the [changelog](CHANGELOG.md) for upgrade details.
 
@@ -267,3 +267,16 @@ The parent waits, verifies the backup's result, then releases its successors.
 
 Developed with AI coding assistants, guided by Bruno Falcão. Verified through
 automated tests and continuous integration. [MIT licensed](LICENSE).
+
+Maintenance verification (2026-11-16): service inputs are late-bound container
+lookups; do not reject compatible shared constructor/handler bindings from class
+names alone. Preserve model-declared connections when no override is provided.
+Empty constructor argument snapshots are observable diagnostics, including skipped
+actions; query optimizations must preserve their timing and attempt ownership.
+Run shared-database collision checks serially. Retain test process session IDs,
+stop only identified owned runs, and rerun collision proof after any overlap
+(2026-11-16).
+
+Patch-release review (2026-11-16): preserve published constructor call shapes
+when extracting internal helpers, and test manual construction alongside container
+resolution. Internal refactoring must not force consumer code changes.

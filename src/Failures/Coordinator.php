@@ -6,12 +6,12 @@ namespace Scarlett\Failures;
 
 use Closure;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use ReflectionMethod;
 use Scarlett\Execution\Delivery as WorkflowDelivery;
 use Scarlett\Execution\FailureCause;
 use Scarlett\Execution\Progression;
+use Scarlett\Execution\WorkflowAttemptLock;
 use Scarlett\Models\FailureRecord;
 use Scarlett\Models\StepRecord;
 use Scarlett\Models\WorkflowRecord;
@@ -24,6 +24,8 @@ use Scarlett\Step;
  */
 final class Coordinator
 {
+    public function __construct(private WorkflowAttemptLock $attemptLock = new WorkflowAttemptLock) {}
+
     /** Called by the journal inside the owning workflow transaction. */
     public function register(StepRecord $step, FailureCause $cause, ?string $reason): void
     {
@@ -58,11 +60,17 @@ final class Coordinator
     {
         // Use current hook outcomes even inside a consumer's older transaction snapshot.
         $failures = $workflow->failures()->lockForUpdate()->get()->keyBy('step_id');
+        $stepsById = $steps->keyBy('id');
+        $childrenByParent = $steps->groupBy('parent_key');
         foreach ($failures as $failure) {
             if ($failure->status !== Status::Pending) {
                 continue;
             }
-            $descendants = $this->descendants($steps, $steps->firstWhere('id', $failure->step_id)->key);
+            $owner = $stepsById->get($failure->step_id);
+            if ($owner === null) {
+                throw new \RuntimeException("Failure {$failure->id} has no owner step.");
+            }
+            $descendants = $this->descendants($childrenByParent, $owner->key);
             $waiting = $descendants->contains(fn (StepRecord $step): bool => $step->state::phase() !== Phase::Settled
                 || (isset($failures[$step->id]) && ! $failures[$step->id]->status->settled()));
             if (! $waiting) {
@@ -71,12 +79,16 @@ final class Coordinator
         }
     }
 
-    private function descendants(Collection $steps, string $parent): Collection
+    private function descendants(Collection $childrenByParent, string $parent): Collection
     {
-        $children = $steps->filter(fn (StepRecord $step): bool => $step->parent_key === $parent);
-        $result = $children;
-        foreach ($children as $child) {
-            $result = $result->merge($this->descendants($steps, $child->key));
+        $result = collect();
+        $stack = $childrenByParent->get($parent, collect())->all();
+        while ($stack !== []) {
+            $child = array_pop($stack);
+            $result->push($child);
+            foreach ($childrenByParent->get($child->key, collect())->all() as $grandchild) {
+                $stack[] = $grandchild;
+            }
         }
 
         return $result;
@@ -97,25 +109,16 @@ final class Coordinator
     /** The workflow lock is shared with step execution, replacement, cancellation and history cleanup. */
     private function mutate(string $id, Closure $operation, bool $advance = true): mixed
     {
-        $workflowId = FailureRecord::whereKey($id)->toBase()->value('workflow_id');
-        if ($workflowId === null) {
-            return null;
-        }
-
-        return DB::transaction(function () use ($id, $workflowId, $operation, $advance): mixed {
-            $workflow = WorkflowRecord::whereKey($workflowId)->lockForUpdate()->first();
-            $failure = $workflow?->failures()->whereKey($id)->lockForUpdate()->first();
-            if ($failure === null) {
-                return null;
-            }
-            $result = $operation($failure);
-            if ($advance && $result !== false && $result !== null) {
+        return $this->attemptLock->mutate(
+            $id,
+            fn (string $failureId): mixed => FailureRecord::whereKey($failureId)->toBase()->value('workflow_id'),
+            fn (WorkflowRecord $workflow, string $failureId): ?FailureRecord => $workflow->failures()->whereKey($failureId)->lockForUpdate()->first(),
+            $operation,
+            $advance ? function (WorkflowRecord $workflow, string $workflowId): void {
                 app(Progression::class)->advance($workflow);
                 app(WorkflowDelivery::class)->afterCommit($workflowId);
-            }
-
-            return $result;
-        }, (int) config('scarlett.transaction_attempts'));
+            } : null,
+        );
     }
 
     public function claim(string $id, string $attempt): ?FailureRecord
@@ -159,10 +162,14 @@ final class Coordinator
 
     public function heartbeat(string $id, string $attempt): bool
     {
-        return $this->whileCurrent($id, $attempt, function () use ($id): void {
-            $failure = FailureRecord::findOrFail($id);
+        return (bool) $this->mutate($id, function (FailureRecord $failure) use ($attempt): bool {
+            if (! $this->owns($failure, $attempt)) {
+                return false;
+            }
             $failure->update(['lease_until' => now()->addSeconds($failure->step->executionOptions()['lease_seconds'])]);
-        });
+
+            return true;
+        }, advance: false);
     }
 
     public function canRetry(string $id, string $attempt): bool

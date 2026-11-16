@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.3.2 — 2026-11-16
+
+### Fixed
+
+- Keep a waiting parent active after a child is cancelled until running siblings and their descendant branches settle. Cancel unstarted siblings without revoking work already running.
+- Fail closed when the admission control row is missing, before admission, replacement, deletion callbacks, cooldown or reopening can proceed.
+- Reject invalid retry policies, enum/model registries, throttle policies and state/transition configuration before admission. Validate UTF-8 and existing storage limits in workflow definitions.
+- Preserve a model's declared database connection when restoring a `ModelReference` without an explicit override. Support numeric registry aliases, report malformed payload nodes, and avoid resolving object mappers for unsupported resources.
+
+### Maintenance and tests
+
+- Share workflow-attempt locking and outbox publication between action and failure handling, preserving existing constructor calls and ownership checks. Batch reopening delivery callbacks and index dependency/descendant traversal.
+- Avoid reloading a failure record during heartbeat. Allow failure transport jobs to default their timeout while preserving the named `timeout` argument.
+- Expand regressions for cancellation, missing admission control, configuration compatibility, payload restoration, constructor compatibility, callback batching and failure lease ownership.
+
+### Upgrade
+
+- No new migration, dependency or consumer configuration key. All eleven published migrations remain unchanged. Existing valid definitions and step classes need no conversion; malformed configuration and values outside the existing storage contract now fail earlier.
+- Reload long-running workers through the consumer's normal deployment procedure to use this version. Source publication does not deploy or migrate consumers.
+
 ## 2.3.1 — 2026-11-15
 
 ### Tests

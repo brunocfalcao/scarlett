@@ -35,6 +35,38 @@ beforeEach(function () {
     FailureAwareStep::$constructionThrows = false;
 });
 
+it('defaults terminal hook transport timeout while preserving the named timeout argument', function () {
+    config(['scarlett.worker_timeout' => 37]);
+
+    expect((new ExecuteFailure('failure', 'attempt'))->timeout)->toBe(37)
+        ->and((new ExecuteFailure('failure', 'attempt', timeout: 11))->timeout)->toBe(11);
+});
+
+it('extends only a current failure lease and rejects stale expired and cancelled heartbeats', function () {
+    $this->freezeSecond();
+    $flow = failureFlow('fail');
+    runStep($flow->id, 'action');
+    $failure = $flow->failures()->sole();
+    $coordinator = app(Coordinator::class);
+    expect($coordinator->claim($failure->id, $failure->attempt)?->id)->toBe($failure->id);
+    $originalLease = $failure->fresh()->lease_until;
+    $this->travel(10)->seconds();
+    expect($coordinator->heartbeat($failure->id, $failure->attempt))->toBeTrue()
+        ->and($failure->fresh()->lease_until->equalTo($originalLease->addSeconds(10)))->toBeTrue();
+    $before = $failure->fresh()->getAttributes();
+    expect($coordinator->heartbeat($failure->id, 'stale-attempt'))->toBeFalse()
+        ->and($failure->fresh()->getAttributes())->toBe($before);
+    $this->travel(300)->seconds();
+    expect($coordinator->heartbeat($failure->id, $failure->attempt))->toBeFalse()
+        ->and($failure->fresh()->getAttributes())->toBe($before);
+    app(Engine::class)->cancelWorkflow($flow->id);
+    $cancelled = $failure->fresh()->getAttributes();
+    expect($coordinator->heartbeat($failure->id, $failure->attempt))->toBeFalse()
+        ->and($failure->fresh()->status)->toBe(Status::Cancelled)
+        ->and($failure->fresh()->getAttributes())->toBe($cancelled)
+        ->and($coordinator->heartbeat('missing-failure', 'missing-attempt'))->toBeFalse();
+});
+
 function failureFlow(string $mode, int $attempts = 1): WorkflowRecord
 {
     return app(Engine::class)->start(new Workflow([new Node('action', FailureAwareStep::class, inputs: ['name' => 'action', 'mode' => $mode], execution: new ExecutionOptions(attempts: $attempts, backoffSeconds: [3], verificationAttempts: 1))]));

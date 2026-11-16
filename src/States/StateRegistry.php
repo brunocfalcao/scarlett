@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Scarlett\States;
 
 use InvalidArgumentException;
+use Spatie\ModelStates\Transition;
 
 /**
  * Validates stable aliases and scheduling semantics for configured states.
@@ -23,6 +24,9 @@ final class StateRegistry
     public function classes(): array
     {
         $configuration = config('scarlett.states', []);
+        if (! is_array($configuration)) {
+            throw new InvalidArgumentException('scarlett.states must be an array of state classes.');
+        }
         if ($this->stateConfiguration === $configuration) {
             return $this->cachedClasses;
         }
@@ -30,7 +34,7 @@ final class StateRegistry
             Completed::class, Skipped::class, Failed::class, Stopped::class, Cancelled::class], $configuration);
         $aliases = [];
         foreach ($classes as $class) {
-            if (! is_subclass_of($class, StepState::class)) {
+            if (! is_string($class) || ! is_subclass_of($class, StepState::class)) {
                 throw new InvalidArgumentException('States must extend StepState.');
             }
             $alias = $class::getMorphClass();
@@ -57,6 +61,9 @@ final class StateRegistry
     {
         $classes = $this->classes();
         $configuration = config('scarlett.transitions', []);
+        if (! is_array($configuration)) {
+            throw new InvalidArgumentException('scarlett.transitions must be an array of transition definitions.');
+        }
         if ($this->transitionConfiguration === $configuration) {
             return $this->cachedTransitions;
         }
@@ -72,6 +79,11 @@ final class StateRegistry
             }
         }
         foreach ($configuration as $transition) {
+            if (! is_array($transition) || ! array_is_list($transition) || count($transition) < 2 || count($transition) > 3
+                || ! isset($transition[0], $transition[1]) || ! is_string($transition[0]) || ! is_string($transition[1])
+                || (isset($transition[2]) && $transition[2] !== null && (! is_string($transition[2]) || ! is_subclass_of($transition[2], Transition::class)))) {
+                throw new InvalidArgumentException('scarlett.transitions entries must contain two state classes and an optional transition class.');
+            }
             if (! in_array($transition[0], $classes, true) || ! in_array($transition[1], $classes, true)
                 || $transition[0]::phase() === Phase::Settled) {
                 throw new InvalidArgumentException('Custom transitions require registered states and cannot reopen settled work.');

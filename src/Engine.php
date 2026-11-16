@@ -19,6 +19,7 @@ use Scarlett\Execution\Journal;
 use Scarlett\Execution\NodeStore;
 use Scarlett\Execution\Progression;
 use Scarlett\Execution\RuntimeChildren;
+use Scarlett\Execution\WorkflowAttemptLock;
 use Scarlett\Failures\Coordinator;
 use Scarlett\Inputs\PayloadCodec;
 use Scarlett\Models\StepRecord;
@@ -40,6 +41,7 @@ final class Engine
         private Progression $progression,
         private Journal $journal,
         private Delivery $delivery,
+        private WorkflowAttemptLock $attemptLock = new WorkflowAttemptLock,
     ) {}
 
     public function replace(SubjectSlot $slot, callable $prepare): ?WorkflowRecord
@@ -80,7 +82,7 @@ final class Engine
         $definition->validate();
 
         return DB::transaction(function () use ($definition): WorkflowRecord {
-            $control = DB::table('scarlett_control')->where('id', 'admission')->sharedLock()->first();
+            $control = app(Admission::class)->lockShared();
             $workflow = WorkflowRecord::create([
                 'id' => (string) Str::uuid(),
                 'subject_type' => $definition->subjectType,
@@ -103,28 +105,16 @@ final class Engine
     /** A workflow lock serializes claims, outcomes, cancellation, recovery and admission. */
     private function mutate(string $stepId, Closure $operation, bool $advance = true): mixed
     {
-        $workflowId = StepRecord::whereKey($stepId)->toBase()->value('workflow_id');
-        if ($workflowId === null) {
-            return null;
-        }
-
-        return DB::transaction(function () use ($stepId, $workflowId, $operation, $advance): mixed {
-            $workflow = WorkflowRecord::whereKey($workflowId)->lockForUpdate()->first();
-            if (! $workflow) {
-                return null;
-            }
-            $step = $workflow->steps()->whereKey($stepId)->lockForUpdate()->first();
-            if (! $step) {
-                return null;
-            }
-            $result = $operation($step);
-            if ($advance && $result !== null && $result !== false) {
+        return $this->attemptLock->mutate(
+            $stepId,
+            fn (string $id): mixed => StepRecord::whereKey($id)->toBase()->value('workflow_id'),
+            fn (WorkflowRecord $workflow, string $id): ?StepRecord => $workflow->steps()->whereKey($id)->lockForUpdate()->first(),
+            $operation,
+            $advance ? function (WorkflowRecord $workflow, string $workflowId): void {
                 $this->progression->advance($workflow);
                 $this->delivery->afterCommit($workflowId);
-            }
-
-            return $result;
-        }, (int) config('scarlett.transaction_attempts'));
+            } : null,
+        );
     }
 
     public function claim(string $stepId, string $attempt): ?StepRecord

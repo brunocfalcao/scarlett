@@ -134,6 +134,25 @@ it('rejects invalid global Scarlett configuration values', function (string $key
     'non-throwable input_terminal_exceptions' => ['input_terminal_exceptions', [stdClass::class], 'Throwable'],
 ]);
 
+it('rejects invalid registry, retry policy and throttle configuration before admission', function (string $key, mixed $value, string $message) {
+    $original = config("scarlett.$key");
+    try {
+        config(["scarlett.$key" => $value]);
+
+        expect(fn () => app(Configuration::class)->validate())
+            ->toThrow(InvalidArgumentException::class, $message);
+    } finally {
+        config(["scarlett.$key" => $original]);
+    }
+})->with([
+    'invalid retry policy' => ['retry_policy', stdClass::class, 'retry_policy'],
+    'invalid enum alias' => ['enums', ['status' => stdClass::class], 'scarlett.enums'],
+    'invalid model alias' => ['models', ['source' => stdClass::class], 'scarlett.models'],
+    'invalid throttle limits' => ['throttles', ['bad' => ['max_requests' => 0, 'per_seconds' => 60]], 'scarlett.throttles'],
+    'invalid states shape' => ['states', 'not-a-list', 'scarlett.states'],
+    'invalid transition shape' => ['transitions', [['invalid']], 'scarlett.transitions'],
+]);
+
 it('rejects invalid ExecutionOptions retry and verification policies before admission', function (ExecutionOptions $options) {
     expect(fn () => app(Engine::class)->start(new Workflow([
         new Node('bad', FailureAwareStep::class, inputs: ['name' => 'bad'], execution: $options),
