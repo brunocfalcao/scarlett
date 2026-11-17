@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks repair after interrupted execution or queue publication.
+ *
+ * Manipulate delivery timestamps and leases to model lost work, then ask recovery
+ * to act. Token comparisons prove the old worker cannot save afterward. Persisted
+ * action checkpoints prove a repaired verification path does not repeat handle().
+ * Publication faults occur after commit and must leave recoverable intent, not erase work.
+ */
+
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;

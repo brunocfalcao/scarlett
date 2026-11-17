@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Races one parent's runtime child handoff against duplicate delivery and revocation.
+ *
+ * All contenders use real database transactions. Exactly one complete plan may be
+ * saved, and it must share the parent's accepted checkpoint. Recovery replaces expired
+ * attempt authority; the old attempt cannot add children just because it began first.
+ * Repeated rounds exercise different lock acquisition orders.
+ */
+
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\Tests\Collision\Workers;

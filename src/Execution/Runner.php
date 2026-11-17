@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Runs one queued step delivery through preparation, action, and verification.
+ *
+ * The job carries a step ID and attempt token, not a live step object. Claim the
+ * token first, restore inputs, then construct the user's class. Business code runs
+ * outside workflow locks. Recheck authority between hooks because any of them can
+ * cancel or replace the workflow. Saving the action result is a durable checkpoint:
+ * redelivery after that point repeats verification, never the completed action.
+ */
+
 namespace Scarlett\Execution;
 
 use Scarlett\Engine;
@@ -35,6 +45,10 @@ final class Runner
 
     private function execute(string $stepId, string $attempt): void
     {
+        /**
+         * A duplicate or outdated job is a normal no-op. Only a successful claim starts
+         * preparation and gives this delivery a running lease.
+         */
         $record = $this->engine->claim($stepId, $attempt);
         if ($record === null) {
             return;
@@ -46,12 +60,21 @@ final class Runner
             if (! $context->isCurrent()) {
                 return;
             }
+            /**
+             * Constructing the step can be necessary again for verification. Do not overwrite
+             * the original action's argument snapshot once its result has been saved.
+             */
             $recorder = $record->action_completed ? null : app(Signature::class)->recorder($record, $context);
             $step = $this->invoker->construct($record->class, $inputs, $context, $recorder);
             if (! $context->isCurrent()) {
                 return;
             }
             if (! $record->action_completed) {
+                /**
+                 * Reserve any quota before before() or handle() runs. A wait postpones this
+                 * attempt without charging its action-failure budget. Recheck ownership after
+                 * custom policy calls because application code can revoke its own workflow.
+                 */
                 $throttle = $step->throttle();
                 if (! $context->isCurrent()) {
                     return;
@@ -65,6 +88,11 @@ final class Runner
 
                     return;
                 }
+                /**
+                 * before() may skip, stop, retry, hand off children, or supply an accepted result.
+                 * Only a null decision means call handle(); an accepted result still needs the
+                 * same save-and-verify path as a normal return value.
+                 */
                 $decision = $step->before($context);
                 if (! $context->isCurrent()) {
                     return;
@@ -90,6 +118,11 @@ final class Runner
                 return;
             }
             try {
+                /**
+                 * If construction failed there is no step object whose onException() can run.
+                 * Use the configured input handler instead; it cannot invent success or children
+                 * for an object that never existed. A Throttled exception has its own wait path.
+                 */
                 $decision = match (true) {
                     $exception instanceof Throttled => Decision::throttle($exception->seconds),
                     $step !== null => $step->onException($exception, $context),
@@ -113,6 +146,11 @@ final class Runner
             }
         }
         if (! $record->action_completed) {
+            /**
+             * Persist the result before checking whether it meets the business completion
+             * condition. An encoding failure is terminal here: retrying verification cannot
+             * repair a result that was never saved in the supported format.
+             */
             try {
                 if (! $this->engine->saveAction($stepId, $attempt, $result, $state)) {
                     return;
@@ -128,6 +166,11 @@ final class Runner
             return;
         }
         try {
+            /**
+             * Verify the saved-and-restored value rather than the original in-memory return.
+             * This checks what future workers will actually read. Verification errors spend
+             * only the verification budget; they never re-enter handle() or onException().
+             */
             $result = $this->codec->decode($record->refresh()->result);
             if (! $context->isCurrent()) {
                 return;

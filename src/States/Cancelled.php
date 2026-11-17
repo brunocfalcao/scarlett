@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Execution authority was withdrawn rather than business failure being accepted.
+ * Successors cannot proceed, but rescues are not activated solely by cancellation.
+ * A stale worker cannot regain permission merely by keeping its old token.
+ *
+ * The stable alias is stored in the database. The methods below tell Progression
+ * how to treat that alias, including whether it is final and whether work may follow.
+ */
+
 namespace Scarlett\States;
 
 /**

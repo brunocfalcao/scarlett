@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Builds the checked list of state aliases and legal state changes.
+ *
+ * Database rows store stable aliases rather than full class names. Aliases must be
+ * unique, and state semantics must agree: unfinished work cannot release successors,
+ * and a successful state cannot also activate failure recovery. Custom transitions
+ * may extend the machine but cannot reopen final work. Cache only while configuration
+ * is unchanged so a changed application registry is not served stale mappings.
+ */
+
 namespace Scarlett\States;
 
 use InvalidArgumentException;
@@ -32,6 +42,11 @@ final class StateRegistry
         }
         $classes = array_merge([Pending::class, Queued::class, Running::class, WaitingForChildren::class,
             Completed::class, Skipped::class, Failed::class, Stopped::class, Cancelled::class], $configuration);
+        /**
+         * Aliases are what saved rows contain, so duplicates would restore the wrong
+         * class. Check scheduling semantics here too: a nonfinal state cannot announce
+         * success, and final success cannot simultaneously request failure recovery.
+         */
         $aliases = [];
         foreach ($classes as $class) {
             if (! is_string($class) || ! is_subclass_of($class, StepState::class)) {
@@ -78,6 +93,11 @@ final class StateRegistry
                 $transitions[] = [$from, $to];
             }
         }
+        /**
+         * A custom transition names source and destination, plus an optional transition
+         * class. Require registered endpoints and forbid leaving a final state; retained
+         * finished work must not become executable again through a custom transition.
+         */
         foreach ($configuration as $transition) {
             if (! is_array($transition) || ! array_is_list($transition) || count($transition) < 2 || count($transition) > 3
                 || ! isset($transition[0], $transition[1]) || ! is_string($transition[0]) || ! is_string($transition[1])

@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks the application's Artisan and configuration entry points into Scarlett.
+ *
+ * Tests create interrupted action and failure-hook records, then invoke recovery
+ * with and without a workflow restriction. Configuration cases supply invalid values
+ * before admission. Queue fakes expose accidental publication; scoped assertions
+ * ensure repairing one workflow does not silently repair unrelated work too.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Configuration;

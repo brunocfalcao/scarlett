@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks the ordinary sequence, parallel, child, and rescue execution paths.
+ *
+ * Queue fakes and runStep() let each case choose which attempt completes next. Observe
+ * when a successor becomes queued and when its object is constructed, proving the
+ * engine waits for all required outcomes and restores input results only when needed.
+ * Numeric-looking keys guard against treating a valid zero key as an absent link.
+ */
+
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\ExecutionOptions;
 use Scarlett\Definition\Node;

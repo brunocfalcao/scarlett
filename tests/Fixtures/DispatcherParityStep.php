@@ -2,6 +2,13 @@
 
 declare(strict_types=1);
 
+/**
+ * Records lifecycle events while simulating the behaviors compared with dispatcher
+ * semantics: precheck decisions, one retry, accepted exceptions, failure hooks, and
+ * nested child discovery. Mode branches are test controls rather than engine rules;
+ * exact event counts expose duplicate actions hidden by an otherwise correct final state.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use RuntimeException;
@@ -60,6 +67,10 @@ class DispatcherParityStep extends Step
             throw new RuntimeException("Fatal error in {$this->name}");
         }
 
+        /**
+         * Each level uses a fresh local child plan and forwards its direct child's result.
+         * This stresses nested ownership without introducing independent child workflows.
+         */
         if ($this->mode === 'spawn' && $this->spawnDepth > 0) {
             return Decision::children([
                 new Node('child-'.$this->spawnDepth, self::class, inputs: [

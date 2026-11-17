@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Turns a map of named input values into the positional arguments PHP will receive.
+ *
+ * Workflow validation checks the declaration first; this class performs the actual
+ * constructor and handle() calls after bindings have been restored. It supplies
+ * only exact Context parameters automatically. Other services require explicit
+ * bindings. Preparing the argument list once lets diagnostics record exactly the
+ * values passed, without evaluating defaults or resolving inputs a second time.
+ */
+
 namespace Scarlett\Execution;
 
 use InvalidArgumentException;
@@ -56,6 +66,11 @@ final class Invoker
     /** Check only literal shapes whose restored type is already known, without resolving bindings or mappers. */
     public static function validateLiteral(ReflectionParameter $parameter, mixed $value): void
     {
+        /**
+         * An object here may be a binding recipe or mapper-supported value. Its restored
+         * type is not established yet, so do not resolve services, models, or mappers
+         * merely to validate a declaration before execution.
+         */
         if (is_object($value)) {
             return;
         }
@@ -74,6 +89,11 @@ final class Invoker
         if ($type === null || ($value === null && $type->allowsNull())) {
             return true;
         }
+        /**
+         * A union accepts any listed type; an intersection requires every listed type.
+         * Keep scalar checks strict so an input such as string "2" is not accepted for an
+         * integer parameter just because PHP could coerce it in another calling context.
+         */
         if ($type instanceof ReflectionUnionType) {
             return collect($type->getTypes())->contains(fn ($part): bool => self::acceptsLiteral($part, $value));
         }
@@ -97,6 +117,11 @@ final class Invoker
 
     private function arguments(ReflectionFunctionAbstract $method, array $inputs, ?Context $context): array
     {
+        /**
+         * Read parameters in method order, fetching values by name. Variadic parameters
+         * expand a list into separate arguments; optional defaults are evaluated only
+         * here, immediately before the call, rather than during workflow admission.
+         */
         $arguments = [];
         foreach ($method->getParameters() as $parameter) {
             $name = $parameter->getName();

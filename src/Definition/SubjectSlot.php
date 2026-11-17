@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Names one current-workflow lane belonging to a business subject.
+ *
+ * The triple of subject type, subject ID, and slot name lets one subject maintain
+ * independent workflows for different purposes. The database primary key is a hash
+ * of that full triple. JSON preserves component boundaries, avoiding collisions
+ * from ambiguous delimiter concatenation; hashing avoids SQL collation comparisons.
+ */
+
 namespace Scarlett\Definition;
 
 use InvalidArgumentException;
@@ -23,6 +32,11 @@ final readonly class SubjectSlot
 
     public function id(): string
     {
+        /**
+         * Encode the three strings separately before hashing: ["ab", "c", "x"] must
+         * not share an identity with ["a", "bc", "x"]. Hashing the exact encoded bytes
+         * also keeps case and accents distinct regardless of database collation.
+         */
         return hash('sha256', json_encode([$this->subjectType, $this->subjectId, $this->name], JSON_THROW_ON_ERROR));
     }
 }

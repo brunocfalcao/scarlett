@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Covers boundaries where neighboring lifecycle paths must remain distinct.
+ *
+ * Examples include verification exceptions versus action exceptions, accepted prechecks
+ * versus handle(), cancellation versus failure recovery, and runtime children versus
+ * predeclared children. Counters and intermediate records expose an incorrect path
+ * even when both paths could eventually produce the same aggregate workflow status.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\ExecutionOptions;

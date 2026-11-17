@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * The queue message for one durable terminal failure-hook attempt.
+ *
+ * This is separate from an action job because the original step has already failed.
+ * Release early deliveries until their saved due time, then let the failure runner
+ * claim authority. Queue faults leave Coordinator and Recovery responsible for
+ * retrying the saved hook attempt rather than replaying the original business action.
+ */
+
 namespace Scarlett\Jobs;
 
 use Illuminate\Bus\Queueable;

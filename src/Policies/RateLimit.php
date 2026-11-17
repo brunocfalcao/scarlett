@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Selects a named quota and the identity that should share it.
+ *
+ * For example, different steps can use the same provider policy and account key to
+ * share one rolling request window. The name loads limits from configuration; the
+ * key chooses which calls compete. Hash both into one exact database identity, then
+ * let ThrottleReservations lock and allocate capacity for the current action attempt.
+ */
+
 namespace Scarlett\Policies;
 
 use InvalidArgumentException;

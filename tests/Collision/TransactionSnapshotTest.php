@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks that mutation paths see committed outcomes despite older consumer reads.
+ *
+ * Open an outer transaction, establish its view, then commit a competing operation
+ * through a separate connection. MySQL can retain the old value for an ordinary read;
+ * engine locking reads must still use current state. SQLite serializes writers, so
+ * Environment::concurrentCommit adapts transaction order without claiming identical
+ * snapshot semantics across drivers. Cleanup restores the default connection.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;

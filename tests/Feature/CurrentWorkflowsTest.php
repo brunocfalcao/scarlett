@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks batched reads of each subject's current named workflow lane.
+ *
+ * The pointer may reference held, finished, or archived work; current does not mean
+ * running. Missing or deleted targets are omitted. Query logging verifies one batch
+ * lookup and no query for an empty page, while different subjects and lanes reveal
+ * leakage that a single-subject assertion would not catch.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\SubjectSlot;

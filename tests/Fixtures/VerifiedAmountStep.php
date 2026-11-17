@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Returns a mapper-supported Amount and counts verification calls.
+ * The fixture proves a typed custom result is saved and restored before acceptance
+ * without requiring any extra business action or manually logged return payload.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Execution\Context;

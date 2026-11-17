@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Races subject deletion against guarded writes, admission, and related-state checks.
+ *
+ * The consumer_records table models application data that shares the transaction.
+ * An approved delete revokes all target work; a veto restores it and the callback's
+ * writes. Guard subjects and collation-equivalent controls prove deletion scope
+ * remains exact even when database equality or an older snapshot is broader.
+ */
+
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;

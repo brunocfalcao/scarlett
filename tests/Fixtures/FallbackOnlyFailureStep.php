@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Overrides only the static terminal hook. The base instance hook delegates to it
+ * when construction succeeds, and the failure runner calls it directly when it does
+ * not. Saved call details distinguish these paths without requiring separate actions.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Execution\Context;

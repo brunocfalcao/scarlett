@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Exercises parameter shapes that named input preparation must preserve: optional
+ * defaults, mixed, iterable, callable, literal booleans, and an intersection type.
+ * The returned array exposes each argument after invocation for strict assertions.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Step;

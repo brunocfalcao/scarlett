@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Chooses a real shared quota using a policy name and account key, then records
+ * action calls. The optional thrown action error requests a five-second normal retry,
+ * allowing tests to distinguish quota waits from retries that spend the failure budget.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Execution\Context;

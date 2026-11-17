@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Races shared quota reservations across different workflow locks.
+ *
+ * The throttle row is the shared contention point. Two workers asking for the same
+ * single allowance must yield one grant and one wait, while each attempt's duplicate
+ * check stays free. The snapshot case proves a stale outer transaction cannot hide
+ * a receipt already committed by another connection.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;

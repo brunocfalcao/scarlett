@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks that configuration can support the engine's execution guarantees.
+ *
+ * Do this before registering workflows rather than letting workers discover invalid
+ * timeouts, policies, or state transitions halfway through business work. The same
+ * execution check is reused after node overrides are resolved, because valid defaults
+ * do not guarantee that every per-step timeout and retry budget is valid.
+ */
+
 namespace Scarlett;
 
 use BackedEnum;
@@ -27,6 +36,11 @@ final class Configuration
                 throw new InvalidArgumentException("scarlett.$name must be a positive integer.");
             }
         }
+        /**
+         * Validate resolved defaults using the same code that checks per-node settings.
+         * Then build the state machine now, so invalid aliases or transition definitions
+         * fail before the first workflow is saved rather than when its state changes.
+         */
         (new ExecutionOptions)->snapshot();
         app(StateRegistry::class)->transitions();
         $handler = config('scarlett.input_exception_handler');
@@ -87,9 +101,19 @@ final class Configuration
                 throw new InvalidArgumentException("$name must be a positive integer.");
             }
         }
+        /**
+         * The queue worker should time out before its authority lease expires. Otherwise
+         * recovery could authorize another worker while the first is still allowed to run.
+         * The queue transport's retry_after must also be configured appropriately by the host.
+         */
         if ($options['worker_timeout'] >= $options['lease_seconds']) {
             throw new InvalidArgumentException('The worker timeout must be shorter than the execution lease.');
         }
+        /**
+         * Both action and verification need a positive total-attempt budget and at least
+         * one wait value. A zero-second backoff is allowed, but negative values or gaps in
+         * the numeric list would make selecting a delay ambiguous.
+         */
         foreach (['retry', 'verification'] as $policy) {
             $attempts = $options[$policy]['attempts'];
             $backoff = $options[$policy]['backoff_seconds'];

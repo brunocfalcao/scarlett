@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Removes one business subject's workflow history and current-slot pointers together.
+ *
+ * Additional guard subjects let the application inspect related work under locks
+ * before approving deletion. They are protected for the check, not deletion targets.
+ * The application's callback can veto the whole operation, including its own writes.
+ * Removing running records revokes future saves but cannot undo an external action
+ * that a worker has already sent.
+ */
+
 namespace Scarlett;
 
 use Illuminate\Database\Eloquent\Builder;
@@ -35,6 +45,11 @@ final class SubjectDeletion
             return DB::transaction(function () use ($subject, $prepare, $guardSubjects): bool {
                 // Freeze admission/replacement before taking workflow and consumer locks.
                 app(Admission::class)->lockExclusive();
+                /**
+                 * Read targets and guard subjects while new admission is blocked. Keep deletion
+                 * IDs separate from the full callback collection so a related guard's history
+                 * cannot be removed merely because the caller needed to inspect it.
+                 */
                 $locked = $this->lockWorkflows([$subject, ...$guardSubjects]);
                 $targets = $locked->filter(fn (WorkflowRecord $workflow): bool => $subject->matches($workflow->subject_type, $workflow->subject_id))->modelKeys();
                 $approved = $prepare($locked);
@@ -62,6 +77,11 @@ final class SubjectDeletion
     /** @param list<Subject> $subjects */
     private function lockWorkflows(array $subjects): Collection
     {
+        /**
+         * Lock workflows in deterministic ID order, then compare subject strings exactly.
+         * Some database collations consider different case or accents equal; the PHP check
+         * keeps those distinct subjects from becoming accidental deletion targets.
+         */
         $workflows = WorkflowRecord::where(function (Builder $query) use ($subjects): void {
             foreach ($subjects as $subject) {
                 $query->orWhere(fn (Builder $query) => $query->forSubject($subject->subjectType, $subject->subjectId));

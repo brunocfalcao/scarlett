@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Connects the package to its host Laravel application's container and commands.
+ *
+ * Merge defaults while allowing application overrides, share the validated state
+ * registry, discover package migrations, and expose optional configuration publishing.
+ * The application owns scheduler choices; registering this provider does not start
+ * workers, run migrations, or schedule recovery automatically.
+ */
+
 namespace Scarlett;
 
 use Illuminate\Support\ServiceProvider;

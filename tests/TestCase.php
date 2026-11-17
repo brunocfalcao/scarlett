@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Creates the host Laravel application used by package feature tests.
+ *
+ * Testbench loads Scarlett's provider as a real host would. The default feature lane
+ * uses in-memory SQLite and synchronous jobs; cases fake the queue when they need
+ * manual control of intermediate states. Explicit MySQL/PostgreSQL lanes use the
+ * shared dedicated test configuration and verify isolation before resetting schema.
+ */
+
 namespace Scarlett\Tests;
 
 use Orchestra\Testbench\TestCase as Orchestra;

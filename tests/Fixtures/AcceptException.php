@@ -2,6 +2,11 @@
 
 declare(strict_types=1);
 
+/**
+ * Returns an accepted zero result from exception classification. Zero is deliberately
+ * falsey: the engine must preserve the supplied value and still verify it as success.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Execution\Context;

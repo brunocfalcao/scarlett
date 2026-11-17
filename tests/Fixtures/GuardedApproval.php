@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * A custom state transition with a controllable permission check.
+ * Tests can register a valid transition but deny it at completion time, proving the
+ * engine reports that rejection on the owning step rather than its last child.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Models\StepRecord;

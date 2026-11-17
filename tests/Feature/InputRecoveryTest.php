@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Separates failures during preparation from failures inside the business action.
+ *
+ * Controllable services, constructors, and mappers fail before handle() can run.
+ * Advance the test clock through the saved backoff and assert no early construction
+ * or action. After action persistence, preparation belongs to verification retries,
+ * so the same restoration error must spend that budget without repeating business work.
+ */
+
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Queue;

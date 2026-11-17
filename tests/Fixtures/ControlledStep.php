@@ -2,6 +2,13 @@
 
 declare(strict_types=1);
 
+/**
+ * A configurable business step used to make lifecycle outcomes observable.
+ * Constructor and action logs reveal early construction or duplicate execution. Modes
+ * choose skip, stop, failure, exceptions, throttling, or verification rejection, letting
+ * tests vary one lifecycle condition while retaining the same graph and inputs.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Exceptions\Throttled;
@@ -22,6 +29,10 @@ class ControlledStep extends Step
 
     public function before(Context $context): ?Decision
     {
+        /**
+         * Precheck terminal modes deliberately avoid handle(). Other modes reach the
+         * action so tests can separate a decision before work from a failure during work.
+         */
         return match ($this->mode) {
             'skip' => Decision::skip(), 'stop' => Decision::stop(), 'fail' => Decision::fail(), default => null,
         };

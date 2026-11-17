@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Converts supported PHP values to structured JSON data and restores them later.
+ *
+ * Each payload has a format version and a typed value tree. Type tags preserve
+ * information plain JSON loses, such as an integral float versus an integer, a
+ * collection versus an array, or a date's timezone. Class restoration uses configured
+ * aliases rather than arbitrary class names from stored data. New writes use version
+ * 2; readers also accept version 1 so retained historical work remains readable.
+ */
+
 namespace Scarlett\Inputs;
 
 use BackedEnum;
@@ -39,6 +49,10 @@ final class PayloadCodec
 
     private function pack(mixed $value): array
     {
+        /**
+         * JSON cannot represent NaN or infinity. Give integral floats their own type tag
+         * so encoding 1.0 and decoding it through JSON does not silently turn it into int 1.
+         */
         if ($value === null || is_scalar($value)) {
             if (is_float($value) && ! is_finite($value)) {
                 throw new InvalidArgumentException('Non-finite numbers cannot be persisted.');
@@ -61,9 +75,19 @@ final class PayloadCodec
                 return ['type' => 'enum', 'alias' => $alias, 'data' => $value->value];
             }
         }
+        /**
+         * Store an explicit live-row reference, never an arbitrary Eloquent object.
+         * Applications choose a snapshot or mapper instead when historical field values
+         * must be retained rather than fetched afresh.
+         */
         if ($value instanceof ModelReference) {
             return ['type' => 'model', 'alias' => $value->alias, 'id' => $value->id, 'connection' => $value->connection];
         }
+        /**
+         * Custom objects need a registered mapper. Store the mapper alias and recursively
+         * encode its data, keeping class selection in trusted application configuration
+         * rather than embedding executable PHP object serialization in database records.
+         */
         if (is_object($value)) {
             foreach (config('scarlett.payload_mappers', []) as $alias => $class) {
                 $mapper = app($class);
@@ -84,6 +108,11 @@ final class PayloadCodec
         if (! is_string($type)) {
             throw new InvalidArgumentException('Malformed Scarlett payload node.');
         }
+        /**
+         * Validate every visited node before reading its fields, including nested ones.
+         * Use array_key_exists() below because a present data field containing null is
+         * valid and must not be mistaken for a missing field.
+         */
         $required = match ($type) {
             'scalar', 'float' => ['data'],
             'array', 'collection' => ['data'],
@@ -136,6 +165,11 @@ final class PayloadCodec
             throw new InvalidArgumentException('Model aliases must reference Eloquent models.');
         }
 
+        /**
+         * Only an explicit override replaces the model's configured connection. Setting
+         * null here would erase a connection declared by the model and could query the
+         * wrong database when the application default differs.
+         */
         if ($node['connection'] !== null) {
             $model->setConnection($node['connection']);
         }

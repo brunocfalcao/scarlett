@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Standalone Redis-queue consumer used by transport, chaos, and soak tests.
+ *
+ * Arguments select an isolated Redis prefix, worker mode, queue name, and optional
+ * clock. Recreate payload registries in this process rather than inheriting parent
+ * memory. Release mode enables database connection cleanup; hook-timeout mode makes
+ * worker failure observable. A JSON exit/memory report lets the parent assert both
+ * process outcome and the memory bound for a continuously running worker.
+ */
+
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Queue;
@@ -20,6 +30,11 @@ Environment::configure($app);
 $prefix = $argv[1] ?? 'scarlett_redis_test_';
 $mode = $argv[2] ?? 'normal';
 $queueName = $argv[3] ?? 'scarlett';
+/**
+ * Use the same frozen instant as the parent for delayed-quota cases. Otherwise
+ * child wall-clock differences could release or retain Redis jobs for the wrong
+ * reason and make boundary assertions nondeterministic.
+ */
 if (isset($argv[4])) {
     Carbon::setTestNow($argv[4]);
 }

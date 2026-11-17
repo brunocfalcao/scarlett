@@ -2,6 +2,17 @@
 
 declare(strict_types=1);
 
+/**
+ * An immutable description of one step, before there is any running step object.
+ *
+ * Key is the workflow-local name used by references; step is the PHP class to create
+ * later. Equal stages in the same parent/rescue group may run together; higher stages
+ * wait for all lower stages. Parent groups ordinary children, while rescues names
+ * the failed owner of a recovery branch. Inputs map PHP parameter names to values
+ * or lookup recipes. Routing, earliest-start time, and execution settings control
+ * how and when workers run it; labels describe it without changing its identity.
+ */
+
 namespace Scarlett\Definition;
 
 use DateTimeInterface;

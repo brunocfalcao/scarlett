@@ -2,6 +2,14 @@
 
 declare(strict_types=1);
 
+/**
+ * Permanently removes archived workflow history older than a caller-selected age.
+ *
+ * The age applies to archived_at, not creation time. RetentionCommand handles input
+ * validation; History rechecks settlement under each workflow's lock and removes
+ * dependent records in order. Unfinished actions and failure hooks remain protected.
+ */
+
 namespace Scarlett\Commands;
 
 use Illuminate\Support\Carbon;

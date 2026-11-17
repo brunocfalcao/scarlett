@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Exercises Redis transport with independent Laravel worker processes.
+ *
+ * Use a per-test Redis prefix and queue name so cleanup targets only this test's keys.
+ * Stored mapped objects, enums, nested plans, delayed throttle jobs, and worker death
+ * must survive crossing process and transport boundaries. Parent and child clocks
+ * are aligned in timing cases rather than depending on wall-clock sleep alone.
+ */
+
 use Illuminate\Queue\TimeoutExceededException;
 use Illuminate\Support\Facades\Redis;
 use Scarlett\Definition\ExecutionOptions;
@@ -152,6 +161,11 @@ it('holds throttled Redis jobs until due without spending retries', function () 
             ->and($limitedBefore->available_at->getTimestamp())->toBe(now()->addSecond()->getTimestamp())
             ->and(Redis::connection()->zcard("queues:{$queue}:delayed"))->toBe(1);
 
+        /**
+         * Run another worker at the same frozen instant. The delayed job must stay
+         * unchanged, proving the wait is enforced by transport rather than a lucky lack
+         * of another worker. Advance the clock only after this negative control.
+         */
         $throttledRun->mustRun();
         expect($second->steps()->where('key', 'limited')->sole()->getRawOriginal())->toBe($limitedBefore->getRawOriginal())
             ->and(Redis::connection()->zcard("queues:{$queue}:delayed"))->toBe(1);

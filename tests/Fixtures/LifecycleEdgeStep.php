@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Controls precheck acceptance, exception classification, and verification failure
+ * without changing the surrounding workflow. Separate action and verification counters
+ * show exactly which lifecycle methods repeat and which must remain single-action.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Execution\Context;

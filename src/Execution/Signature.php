@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Records what a step declares and which arguments a worker actually supplied.
+ *
+ * Declaration metadata is reflected before execution without evaluating defaults.
+ * Actual values are recorded immediately before constructor and handle calls, using
+ * the arguments already prepared by Invoker. Services and Context get descriptors,
+ * not serialized internal state. These are latest-attempt diagnostics, not an
+ * invocation history; verification retries preserve the completed action's snapshot.
+ */
+
 namespace Scarlett\Execution;
 
 use Closure;
@@ -19,6 +29,10 @@ final class Signature
 
     public static function describe(string $class): array
     {
+        /**
+         * Describe declarations without calling getDefaultValue(): an object default may
+         * run a constructor when evaluated. Admission must not run that application code.
+         */
         $reflection = new ReflectionClass($class);
         $signature = [];
         foreach (['constructor' => $reflection->getConstructor(), 'handle' => $reflection->getMethod('handle')] as $name => $method) {
@@ -56,6 +70,11 @@ final class Signature
                 };
             }
             $phase = $method?->getName() === 'handle' ? 'handle' : 'constructor';
+            /**
+             * Capture actual values only while this attempt still owns the step. Start a new
+             * snapshot for a new attempt, but preserve a completed action's snapshot when its
+             * object is reconstructed for verification.
+             */
             $saved = $context->whileCurrent(function () use ($context, $phase, $parameters): void {
                 $current = StepRecord::findOrFail($context->stepId);
                 if ($current->action_completed) {
@@ -85,6 +104,11 @@ final class Signature
 
             return ['kind' => 'value', 'payload' => $payload];
         } catch (Throwable) {
+            /**
+             * Diagnostics must not reject an otherwise runnable step merely because a default
+             * argument cannot be serialized. Record its type and unavailability instead; this
+             * fallback applies to argument capture, not to required result persistence.
+             */
             return ['kind' => 'unavailable', 'type' => get_debug_type($value)];
         }
     }

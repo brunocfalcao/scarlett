@@ -2,6 +2,13 @@
 
 declare(strict_types=1);
 
+/**
+ * Produces the same requested wait through four entry paths: a throttle policy,
+ * a before() decision, a Throttled exception, or an exception handler decision.
+ * The shared blocked flag releases work later; the action counter proves waiting
+ * does not accidentally execute or consume the normal action failure budget.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Exceptions\Throttled;
@@ -39,6 +46,10 @@ class ThrottlingStep extends Step
 
     public function handle(): string
     {
+        /**
+         * Do not increment the successful-action counter for any blocked path. Tests
+         * compare it with failure counters to distinguish attempted waits from real work.
+         */
         if (self::$blocked && $this->source === 'exception') {
             throw new Throttled($this->seconds);
         }

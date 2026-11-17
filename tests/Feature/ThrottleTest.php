@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Compares equivalent throttle waits requested through different lifecycle paths.
+ *
+ * A policy, precheck, Throttled exception, and exception handler must all preserve
+ * the action failure budget. Frozen time proves zero waits receive the configured
+ * minimum while explicit positive waits and ordinary zero-delay retries retain their
+ * own meaning. Action counters expose any execution that occurs while blocked.
+ */
+
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;

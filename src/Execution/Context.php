@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Gives business code access to the authority of this specific execution attempt.
+ *
+ * The IDs describe the workflow and step, while attempt identifies the worker's
+ * current right to act. isCurrent() is only a momentary read; whileCurrent() checks
+ * again under locks and runs database writes atomically with that check. Failure
+ * hooks have a separate failureId and route their authority checks to Coordinator,
+ * because the original step is already finished when its terminal hook runs.
+ */
+
 namespace Scarlett\Execution;
 
 use Scarlett\Engine;

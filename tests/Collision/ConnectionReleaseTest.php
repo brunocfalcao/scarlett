@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks releasing and reopening real database handles at execution boundaries.
+ *
+ * Inspect existing PDO handles directly to distinguish reuse from reconnection.
+ * Transactions, secondary handles, persistent connections, and after-commit callbacks
+ * must remain intact. Lifecycle cases verify actual stored results and guarded writes
+ * after reconnection, including quota waits and nested runtime-child verification.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\ExecutionOptions;
@@ -113,8 +122,10 @@ it('skips a connection configured for persistent PDO without changing its handle
     $configuration['options'][PDO::ATTR_PERSISTENT] = true;
     config(['database.connections.persistent_probe' => $configuration]);
     $probe = DB::connection('persistent_probe');
-    // Use a real existing handle to exercise the configuration guard without
-    // introducing persistent test sessions into the database server's pool.
+    /**
+     * Use a real existing handle to exercise the configuration guard without
+     * introducing persistent test sessions into the database server's pool.
+     */
     $pdo = $connection->getPdo();
     $probe->setPdo($pdo);
     DB::setDefaultConnection('persistent_probe');

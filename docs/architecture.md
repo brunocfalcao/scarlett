@@ -6,6 +6,16 @@
 This is the implementation map for contributors. Public examples belong in the
 consumer guide; comments beside the code explain the invariants an edit must keep.
 
+## Reading and maintaining source comments
+
+Write for a contributor who knows PHP but has never worked on Scarlett. Introduce
+package concepts before using them, explain what each non-obvious block does and
+why it takes that approach, and use small examples where they clarify ordering or
+ownership. Keep explanations beside the relevant code, including inside methods.
+Use `/** ... */` blocks for multiline PHP comments; shell, YAML, and XML retain
+their native comment syntax. Describe verified behavior rather than intended future
+behavior. This convention follows Bruno's approved sample (2026-11-17).
+
 ## From definition to next step
 
 ```mermaid
@@ -186,3 +196,109 @@ Use [the documented test commands](guide.md#develop-and-test-the-package).
 Changing a comment must not alter PHP tokens, annotations or runtime configuration.
 Review the complete diff, retain published migrations byte-for-byte, and run the
 release's full three-database and host gates before publishing a new source tag.
+
+## Published migration responsibilities
+
+Published migration files retain their original bytes, including comments. Add or
+correct explanations here rather than editing released migration files. This
+keeps schema provenance stable even when an update changes documentation only.
+
+### `2026_11_13_000000_create_scarlett_tables.php`
+
+Creates the original durable workflow storage, in dependency order.
+
+Control contains the shared admission gate; workflows own steps; steps own delivery
+requests and transition history. Step keys are unique only within a workflow.
+Restrictive foreign keys require explicit cleanup, so rollback drops dependents
+before owners. Later migrations extend these tables for existing installations.
+
+### `2026_11_13_000001_add_delivery_publishing_lease.php`
+
+Adds a short lease for publishing a saved step job to the queue.
+
+A sender claims publishing_until before transport and clears it afterward. If it
+dies, recovery may reclaim the delivery once the lease expires. This lease protects
+publication, not business execution; the step's attempt and lease protect execution.
+
+### `2026_11_13_000002_add_consumer_execution_options.php`
+
+Adds subject ownership, metadata, saved execution settings, and step timing.
+
+Nullable additions preserve existing rows. New steps save their resolved retry and
+timeout settings in execution; older rows fall back to defaults. not_before is an
+earliest-start constraint, distinct from a particular attempt's available_at.
+Rollback removes only these additions and their associated indexes.
+
+### `2026_11_13_000003_preserve_exact_step_keys.php`
+
+Preserves exact node-key identity on MySQL and MariaDB.
+
+Text collation can merge case, accents, or trailing spaces that PHP treats as
+different keys. Binary columns preserve the bytes; 1020 bytes accommodates 255
+four-byte UTF-8 characters. Other database drivers retain their existing schema.
+Rollback may be refused by uniqueness when old collation would merge distinct keys.
+
+### `2026_11_13_000004_expand_scheduled_date_range.php`
+
+Allows scheduled work outside MySQL's narrower TIMESTAMP date range.
+
+Convert earliest-start and delivery-due columns to DATETIME while preserving each
+column's nullability. Before rollback on MySQL, inspect every affected column and
+refuse narrowing if a retained date would not fit. Check before changing anything
+because MySQL schema changes are not an all-or-nothing transaction.
+
+### `2026_11_13_000005_create_subject_slots.php`
+
+Stores each business subject's named current-workflow pointer.
+
+The primary key is the hash produced by SubjectSlot, preserving exact identity
+without relying on text collation. workflow_id deliberately has no foreign key:
+history cleanup must not acquire a slot lock after holding a workflow lock, which
+would invert replacement's lock order. Reads ignore pointers to missing workflows.
+
+### `2026_11_13_000006_create_failure_executions.php`
+
+Adds durable terminal failure hooks with their own recoverable attempts.
+
+One unique step_id means one logical failure row per step. Snapshot, cause, and
+reason preserve the original failure; status, attempt, deadlines, and error track
+subsequent handler execution. Delivery fields live on this row rather than a
+separate outbox table. Restrictive foreign keys require explicit history cleanup.
+
+### `2026_11_14_000007_add_runtime_children.php`
+
+Saves the parent's checkpoint when an action discovers children while running.
+
+child_phase distinguishes waiting for the plan from verifying after it settles.
+child_result_key optionally identifies the direct child whose result is forwarded.
+Rollback refuses to remove these fields while an unfinished workflow still needs
+them, because losing that checkpoint could replay work or strand the parent.
+
+### `2026_11_14_000008_add_query_indexes.php`
+
+Adds lookup indexes without changing workflow values or scheduling rules.
+
+Indexes cover parent/rescue traversal, delivery replay, retention, and history.
+Existence checks permit resuming after partially completed MySQL schema changes.
+Subject text needs driver-specific indexing: prefix indexes on MySQL, hash equality
+on PostgreSQL, and ordinary composite indexing on SQLite. Queries still check the
+full identities; index prefixes do not redefine subject equality.
+
+### `2026_11_14_000009_add_throttle_reservations.php`
+
+Adds shared rolling-window quota state and per-attempt reservation receipts.
+
+The quota row contains grant timestamps and its active policy limits. Its expiration
+uses epoch milliseconds consistently across drivers. The step receipt makes a
+repeated check of one attempt free. Guards permit retry after partial MySQL DDL;
+rollback waits for active windows so it cannot silently reset live capacity.
+
+### `2026_11_14_193248_add_workflow_and_step_descriptions.php`
+
+Adds optional human labels and latest-invocation diagnostics to existing records.
+
+Title, description, and canonical are nullable text, leaving old definitions valid.
+Signature describes declared PHP parameters; arguments captures actual supplied
+values. These columns describe work without changing UUIDs or graph keys. Column
+existence checks support resuming interrupted nontransactional schema changes.
+Rollback discards these diagnostics while leaving prior execution data in place.

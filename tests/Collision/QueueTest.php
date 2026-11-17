@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Exercises the database queue through independent worker processes.
+ *
+ * A synchronous runner call cannot prove transport serialization, release timing,
+ * worker timeout, or fallback behavior after process death. These cases install the
+ * queue tables, start actual PHP workers, and inspect committed engine state and
+ * stored result types afterward. Injected faults distinguish queue errors from
+ * business retries and retain recoverable intent.
+ */
+
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Queue\TimeoutExceededException;

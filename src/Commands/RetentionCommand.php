@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Shares age and batch validation between archive and purge commands.
+ *
+ * Require exactly one explicit age so a missing or ambiguous option cannot select
+ * an unintended retention policy. Compute the cutoff once per invocation. Batch
+ * size limits how many candidates are fetched at a time, not how many are processed
+ * in total. Subclasses choose whether the eligible history is marked or removed.
+ */
+
 namespace Scarlett\Commands;
 
 use Illuminate\Console\Command;

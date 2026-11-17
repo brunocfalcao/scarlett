@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Maintains one current workflow pointer for a subject's named lane.
+ *
+ * For example, order 42 can have separate "pricing" and "notification" slots.
+ * Replacing one slot cancels its previous workflow and saves its replacement
+ * atomically. A caller may veto replacement; an exception rolls back even the
+ * cancellation before the public method translates that veto into a null result.
+ */
+
 namespace Scarlett;
 
 use Illuminate\Support\Facades\DB;
@@ -35,6 +44,11 @@ final class WorkflowSlots
                     app(Engine::class)->cancelWorkflow($previous->id);
                     $previous->refresh();
                 }
+                /**
+                 * Let the application inspect the previous workflow and prepare related database
+                 * changes while all ownership locks are held. False or null means keep the old
+                 * workflow and pointer exactly as they were, so throw to roll the transaction back.
+                 */
                 $definition = $prepare($previous);
                 if ($definition === null || $definition === false) {
                     throw new ReplacementVetoed;
@@ -42,6 +56,11 @@ final class WorkflowSlots
                 if (! $definition instanceof Workflow) {
                     throw new InvalidArgumentException('Replacement must return a Workflow, null or false.');
                 }
+                /**
+                 * The slot already decides which business subject owns this workflow. Accept an
+                 * omitted subject and fill it from the slot, but reject an explicitly different
+                 * subject so the current pointer cannot silently cross ownership boundaries.
+                 */
                 if (($definition->subjectType !== null && $definition->subjectType !== $slot->subjectType)
                     || ($definition->subjectId !== null && $definition->subjectId !== $slot->subjectId)) {
                     throw new InvalidArgumentException('Replacement workflow subject must match its slot.');
@@ -68,6 +87,11 @@ final class WorkflowSlots
      */
     public function currentForSubjects(string $subjectType, array $subjectIds, string $slotName): array
     {
+        /**
+         * Build exact slot identities for the requested subjects, then query them together.
+         * The returned map uses caller-facing subject IDs rather than internal slot hashes;
+         * subjects without an existing referenced workflow are omitted from the result.
+         */
         $subjectsBySlot = [];
         foreach ($subjectIds as $subjectId) {
             if (! is_string($subjectId) && ! is_int($subjectId)) {

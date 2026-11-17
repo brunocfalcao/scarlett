@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Manages durable follow-up work after a step has permanently failed or stopped.
+ *
+ * A failure hook is separate from onException(): it runs after ordinary retries are
+ * over, has its own queued attempt token and lease, and can itself retry. Keep one
+ * logical failure row per opted-in step, preserving the original reason and inputs.
+ * Parent hooks wait for ordinary child steps and their hooks before running.
+ * All changes share the same workflow-first locks as ordinary action execution.
+ */
+
 namespace Scarlett\Failures;
 
 use Closure;
@@ -38,6 +48,11 @@ final class Coordinator
             return;
         }
         $workflow = $step->workflow;
+        /**
+         * A step has one logical terminal failure, even if a transition path is revisited.
+         * Save input recipes and subject metadata so a fallback hook can still inspect the
+         * failure if live input restoration or step construction later becomes impossible.
+         */
         FailureRecord::firstOrCreate(['step_id' => $step->id], [
             'id' => (string) Str::uuid(),
             'workflow_id' => $step->workflow_id,
@@ -70,6 +85,11 @@ final class Coordinator
             if ($owner === null) {
                 throw new \RuntimeException("Failure {$failure->id} has no owner step.");
             }
+            /**
+             * Do not notify the parent while an ordinary child can still fail or its hook is
+             * unfinished. This traversal follows parent links only; rescue-branch progression
+             * has its own ordering and is not added to this terminal-hook dependency tree.
+             */
             $descendants = $this->descendants($childrenByParent, $owner->key);
             $waiting = $descendants->contains(fn (StepRecord $step): bool => $step->state::phase() !== Phase::Settled
                 || (isset($failures[$step->id]) && ! $failures[$step->id]->status->settled()));
@@ -82,6 +102,10 @@ final class Coordinator
     private function descendants(Collection $childrenByParent, string $parent): Collection
     {
         $result = collect();
+        /**
+         * Use an explicit stack to visit ordinary descendants at any depth. The prebuilt
+         * parent index avoids repeatedly scanning the full workflow for each child's group.
+         */
         $stack = $childrenByParent->get($parent, collect())->all();
         while ($stack !== []) {
             $child = array_pop($stack);
@@ -206,6 +230,11 @@ final class Coordinator
 
     private function retry(FailureRecord $failure, string $error): void
     {
+        /**
+         * A failure-hook error spends the hook's own failure count using the step's saved
+         * retry settings. It does not change the original action's result or failure cause.
+         * Exhaustion settles the hook so the workflow is not held open indefinitely.
+         */
         $failure->failures++;
         $failure->error = $error;
         $failure->save();

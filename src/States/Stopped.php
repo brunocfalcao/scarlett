@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Business code deliberately ended this step unsuccessfully.
+ * Its recovery behavior matches failure: successors are blocked and rescues may run,
+ * while the distinct alias preserves that the stop was intentional.
+ *
+ * The stable alias is stored in the database. The methods below tell Progression
+ * how to treat that alias, including whether it is final and whether work may follow.
+ */
+
 namespace Scarlett\States;
 
 /**

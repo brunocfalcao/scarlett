@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks the separate durable lifecycle that follows terminal business failure.
+ *
+ * Action failure, failure-hook execution, and failure-hook retries have different
+ * records and counters. Cases inspect original causes, stable failure IDs, fallback
+ * metadata, and guarded effects. Child hooks must finish before parent hooks; cancelled
+ * or successful work must not accidentally register terminal failure effects.
+ */
+
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;

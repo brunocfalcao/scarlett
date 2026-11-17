@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Races repair commands and admission-gate changes against the same saved work.
+ *
+ * Two recovery processes may discover one overdue execution. Locking must create one
+ * replacement attempt or replay one existing intent, not multiply jobs. Reopening
+ * and new admission also compete under the gate so no workflow is partially started
+ * or left held after a completed reopening operation.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Scarlett\Definition\ExecutionOptions;
 use Scarlett\Definition\Node;

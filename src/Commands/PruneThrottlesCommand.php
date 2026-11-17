@@ -2,6 +2,14 @@
 
 declare(strict_types=1);
 
+/**
+ * Removes expired shared throttle identities in caller-sized batches.
+ *
+ * This is optional storage housekeeping, not quota resetting. ThrottleReservations
+ * rechecks expiration during deletion so a worker that renewed a selected identity
+ * does not lose its active window. Validate the batch before starting any work.
+ */
+
 namespace Scarlett\Commands;
 
 use Illuminate\Console\Command;

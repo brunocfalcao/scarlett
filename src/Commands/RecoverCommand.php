@@ -2,6 +2,14 @@
 
 declare(strict_types=1);
 
+/**
+ * Exposes interrupted-work repair to Artisan and the application's scheduler.
+ *
+ * An optional workflow ID narrows the scan. Recovery handles overdue deliveries and
+ * expired action or failure-hook leases; normal step completion already progresses
+ * work immediately. The displayed count is repaired executions, not whole workflows.
+ */
+
 namespace Scarlett\Commands;
 
 use Illuminate\Console\Command;

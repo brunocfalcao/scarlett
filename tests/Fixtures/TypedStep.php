@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Requires a mapped Amount in the constructor and an explicitly bound configuration
+ * service in handle(). It records the restored amount and returns a new mapped value,
+ * so tests can verify late object restoration, service resolution, and typed results.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Illuminate\Contracts\Config\Repository;

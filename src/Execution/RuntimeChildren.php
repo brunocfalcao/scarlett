@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Adds a complete child plan discovered by a running step.
+ *
+ * Engine has already locked the workflow and checked the owner's attempt. Children
+ * and the parent's handoff checkpoint are saved in that same transaction: either
+ * both exist or neither does. Child keys start local to the plan, then are prefixed
+ * with the owner's step UUID to avoid collisions with other plans. The parent waits
+ * for its children before verification and cannot replay its business action.
+ */
+
 namespace Scarlett\Execution;
 
 use InvalidArgumentException;
@@ -26,6 +36,11 @@ final class RuntimeChildren
         }
         app(Completion::class)->validate($decision->state, WaitingForChildren::class);
         app(Completion::class)->validate($decision->state, Running::class);
+        /**
+         * Validate the whole plan before storing anything. With resultFrom, the eventual
+         * child supplies the result; otherwise save the decision's own value now. Marking
+         * action_completed prevents a redelivered parent from creating the children twice.
+         */
         $definition = $this->definition($owner, $decision->children);
         $result = $decision->children->resultFrom === null ? $this->codec->encode($decision->result) : null;
         $this->store->store($owner->workflow_id, $definition);
@@ -45,10 +60,19 @@ final class RuntimeChildren
     private function definition(StepRecord $owner, ChildPlan $plan): Workflow
     {
         $local = new Workflow($plan->nodes);
+        /**
+         * An empty runtime plan is meaningful: the parent can still verify its own result.
+         * For nonempty plans, reuse normal definition checks while keys are still local.
+         */
         if ($local->nodes !== []) {
             $local->validate();
         }
         $indexed = collect($local->nodes)->keyBy('key');
+        /**
+         * Only a direct child may supply the parent's result. A grandchild or rescue has
+         * a different owner and lifecycle, so accepting one here would bypass the plan's
+         * explicit direct-child result contract.
+         */
         if ($plan->resultFrom !== null) {
             $source = $indexed->get($plan->resultFrom);
             if ($source === null || $source->parent !== null || $source->rescues !== null) {
@@ -75,6 +99,11 @@ final class RuntimeChildren
                     throw new InvalidArgumentException("Result {$input->step} must come from a prerequisite in this child plan.");
                 }
             }
+            /**
+             * Rewrite result recipes and ownership links together to the prefixed keys. New
+             * ordinary roots become children of the running owner; rescue roots keep their
+             * rescue relationship instead. Explicit routing wins over inherited routing.
+             */
             $inputs = array_map(fn (mixed $input): mixed => $input instanceof FromResult ? new FromResult($this->key($owner, $input->step)) : $input, $node->inputs);
             [$queue, $connection, $priority] = $inherit($node);
             $qualified[] = new Node(
@@ -92,6 +121,11 @@ final class RuntimeChildren
 
     private function key(StepRecord $owner, string $key): string
     {
+        /**
+         * Two different parents may both discover a child named "download". Prefixing
+         * with the owner's UUID makes each address unique in the containing workflow.
+         * Count the full stored key because the prefix also consumes the column limit.
+         */
         $qualified = $owner->id.'/'.$key;
         if (mb_strlen($qualified, 'UTF-8') > Node::MAX_KEY_LENGTH) {
             throw new InvalidArgumentException('Runtime child identity exceeds the storage length limit.');

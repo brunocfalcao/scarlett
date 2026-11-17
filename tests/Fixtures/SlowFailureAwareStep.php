@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Sleeps in either the business action or terminal hook long enough for tests to
+ * exercise real worker timeout and recovery. These waits model interrupted execution;
+ * the parent fixture supplies observable hook effects after successful recovery.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Execution\Context;

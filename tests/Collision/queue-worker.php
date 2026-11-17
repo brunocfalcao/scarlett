@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Standalone database-queue consumer used to test real transport boundaries.
+ *
+ * Boot a fresh Testbench application with the same isolated database and payload
+ * registries as its parent. Fault modes inject lookup errors or worker timeout
+ * conditions; failure output identifies the transport fault without depending on
+ * an application cache counter. The worker stops when its queue has no ready work.
+ */
+
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Queue;
 use Orchestra\Testbench\Foundation\Application;
@@ -22,6 +31,11 @@ config(['queue.default' => 'database', 'queue.connections.database.connection' =
     'scarlett.models' => ['source_record' => SourceRecord::class]]);
 $mode = $argv[1] ?? null;
 $fault = $mode !== null;
+/**
+ * Fault cases must expose the worker exception even without a failure-log store
+ * or persistent cache. Limit selected modes to one job so a failed transport cannot
+ * silently run later deliveries and mask the interrupted engine state.
+ */
 if ($fault) {
     config(['queue.failed.driver' => 'null']);
     Queue::failing(static function ($event): void {

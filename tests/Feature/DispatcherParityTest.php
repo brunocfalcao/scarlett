@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Pins supported workflow behaviors against the dispatcher comparison scenarios.
+ *
+ * Recorded lifecycle events distinguish successful final results from the correct
+ * number and order of actions, hooks, and child handoffs. Cases include falsey values,
+ * parallel barriers, cooldown, routing, scheduling, and duplicate transport. The tests
+ * exercise Scarlett's contract without running another dispatcher implementation.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\ExecutionOptions;

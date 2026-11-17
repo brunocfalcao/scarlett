@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Throws from the business action, then accepts the exception through AcceptException.
+ * The action counter and controllable verification flag prove verification retries do
+ * not call the throwing action again after its accepted result has been saved.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Execution\Context;

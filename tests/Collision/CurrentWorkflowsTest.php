@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks exact batched current-slot reads against the selected real database driver.
+ *
+ * Case, accents, trailing spaces, and slot names can collide under text collation.
+ * SubjectSlot hashes must keep those identities separate while one query returns
+ * only the requested existing assignments. This complements in-memory feature tests
+ * that cannot prove a server's comparison behavior.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Scarlett\Definition\SubjectSlot;
 use Scarlett\Definition\Workflow;

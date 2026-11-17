@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Standalone contender launched by Workers::race(), not an application entry point.
+ *
+ * Boot the same package and isolated database in a separate PHP process, announce
+ * readiness through a file barrier, then perform exactly the requested operation.
+ * On SQLite, record the moment before beginning the write transaction and when it
+ * is acquired so the parent can prove the writer waited. Emit only a JSON result
+ * with timings on normal completion; stdout is a protocol consumed by the parent.
+ */
+
 use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
@@ -63,6 +73,11 @@ if (($arguments['wait_for_admission_waiter'] ?? false) && Environment::driver() 
 }
 $started = microtime(true);
 $engine = app(Engine::class);
+/**
+ * Each branch invokes the real public or coordinator path being raced. Return
+ * booleans or IDs instead of printing narrative output, allowing the parent to
+ * count accepted operations and compare their committed database effects.
+ */
 $result = match ($arguments['operation']) {
     'rate-limit' => (function () use ($arguments): array {
         Carbon::setTestNow($arguments['now']);

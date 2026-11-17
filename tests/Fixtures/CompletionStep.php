@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Accepts a caller-selected result and completion state before the action.
+ * Its unreachable handle() exposes an incorrect precheck path, while configurable
+ * state names let tests exercise allowed and rejected completion transitions.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Execution\Context;

@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Builds the dedicated database configuration shared by collision parents and workers.
+ *
+ * Only scarlett_collision_tests, or its fixed temporary SQLite file, may be reset.
+ * assertIsolated() checks both configured and actual server database identity before
+ * migrations. MySQL/PostgreSQL expose real lock-wait observations; SQLite uses a
+ * file-backed WAL database and immediate transactions to serialize independent writers.
+ * Queue sends are discarded in lock-only tests so the test controls every attempt.
+ */
+
 namespace Scarlett\Tests\Collision;
 
 use Illuminate\Foundation\Application;
@@ -55,6 +65,11 @@ final class Environment
 
     public static function assertIsolated(): void
     {
+        /**
+         * Read the database's own identity, not just configuration. A connection can
+         * resolve somewhere unexpected; no destructive reset is allowed unless both
+         * identities match this suite's dedicated target.
+         */
         $connection = DB::connection();
         $expected = self::driver() === 'sqlite' ? realpath(sys_get_temp_dir().'/'.self::DATABASE.'.sqlite') : self::DATABASE;
         $actual = match (self::driver()) {
@@ -84,6 +99,11 @@ final class Environment
     /** SQLite IMMEDIATE transactions serialize writers, so the other commit must precede the next writer transaction. */
     public static function concurrentCommit(callable $operation): mixed
     {
+        /**
+         * SQLite cannot let another writer commit while this connection holds an
+         * IMMEDIATE transaction. Temporarily finish it, perform the competing commit,
+         * then begin a new writer transaction. Server lanes retain the original snapshot.
+         */
         $serialized = self::driver() === 'sqlite';
         if ($serialized) {
             DB::commit();

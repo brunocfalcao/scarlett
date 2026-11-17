@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks replacing a subject's current workflow without losing atomic ownership.
+ *
+ * The previous attempt is revoked before preparation, but a veto must roll that
+ * revocation back along with pointer and application changes. Separate subjects and
+ * slot names expose unintended replacement scope. Outer transaction cases prove
+ * queue jobs are withheld until the real commit, not just the inner callback return.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\SubjectSlot;

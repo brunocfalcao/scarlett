@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks observable work performed by the engine, not elapsed-time guesses.
+ *
+ * Retrieval hooks, query logs, collection counters, and an SQLite query plan reveal
+ * extra row loads or repeated full-graph scans. Correct final workflow status alone
+ * would miss those costs. Configuration changes are also checked so registry caching
+ * does not trade correctness for fewer validation calls.
+ */
+
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;

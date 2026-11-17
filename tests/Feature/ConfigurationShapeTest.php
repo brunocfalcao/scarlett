@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Pins supported registry key shapes that stricter validation must not reject.
+ *
+ * PHP arrays can convert numeric-looking keys to integers, while aliases can also
+ * be empty strings. These are distinct from malformed classes or policy values.
+ * The tests round-trip registered values and inspect registry output so validation
+ * changes preserve supported configuration instead of inventing new restrictions.
+ */
+
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Scarlett\Configuration;

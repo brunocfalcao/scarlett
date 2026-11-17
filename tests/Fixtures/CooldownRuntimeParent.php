@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Enables admission cooldown from inside an already-running parent before creating
+ * its child plan. Recorded events prove cooldown holds unrelated new workflows while
+ * the started parent and its nested children remain allowed to finish.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Engine;

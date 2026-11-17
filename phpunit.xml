@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Load Composer once, then discover feature and collision tests separately.
+    tests/Pest.php assigns their different application/database base classes.
+    SQLite in-memory is the feature default; collision Environment selects its
+    dedicated real database. Coverage measures package source, not test fixtures.
+-->
 <phpunit bootstrap="vendor/autoload.php" colors="true" cacheDirectory=".phpunit.cache">
 <testsuites><testsuite name="Scarlett"><directory>tests/Feature</directory></testsuite><testsuite name="Collision"><directory>tests/Collision</directory></testsuite></testsuites>
 <source><include><directory>src</directory></include></source>

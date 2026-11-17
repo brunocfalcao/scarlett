@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * The saved definition and execution checkpoint for one workflow step.
+ *
+ * The node key connects graph links; the row UUID identifies this particular record.
+ * Attempt tokens change on each queueing. State and lease decide who can still save.
+ * action_completed prevents business replay; has_result distinguishes a saved null
+ * from no result. Inputs are recipes, while result is a versioned encoded payload.
+ * Use Engine to change execution state so locking, history, and progression stay aligned.
+ */
+
 namespace Scarlett\Models;
 
 use Illuminate\Database\Eloquent\Model;
@@ -93,6 +103,10 @@ class StepRecord extends Model
 
     public function executionOptions(): array
     {
+        /**
+         * Prefer the settings saved when this step was registered. Only older rows with
+         * no execution snapshot use current defaults; active saved budgets remain stable.
+         */
         return $this->execution ?? (new ExecutionOptions)->snapshot();
     }
 

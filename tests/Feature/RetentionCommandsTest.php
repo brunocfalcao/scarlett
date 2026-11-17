@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks explicit archive and purge ages through their Artisan interfaces.
+ *
+ * Use old and new retained work alongside live controls, and small batches to force
+ * multiple fetches. Repeating the command must not restart archive age or count rows
+ * twice. Invalid and ambiguous options are rejected before any history changes; zero
+ * is a supported explicit age rather than a missing option.
+ */
+
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;

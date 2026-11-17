@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks package-owned migrations as installation and upgrade operations.
+ *
+ * Run migrations repeatedly and exercise rollback against populated records. Compare
+ * retained workflow data as well as column and index existence: a schema change that
+ * appears installed can still lose rows. Provider discovery ensures applications do
+ * not need to copy package migrations into their own repository.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;

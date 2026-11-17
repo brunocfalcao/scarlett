@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Finds interrupted work that normal outcome-driven progression cannot advance.
+ *
+ * A queued attempt may have lost its queue delivery; a running worker may have died
+ * and allowed its lease to expire. Include both action and terminal failure-hook
+ * attempts. Scans only suggest candidates: Engine or Coordinator rereads under locks
+ * before repair. Healthy work does not need a periodic tick from this class.
+ */
+
 namespace Scarlett;
 
 use Scarlett\Execution\Delivery;
@@ -60,6 +69,11 @@ final class Recovery
 
     private function candidates(?string $workflowId): iterable
     {
+        /**
+         * Use registered state semantics instead of hard-coding state aliases. Custom
+         * states in queued/running phases must be eligible too. Held workflows are excluded
+         * because their work has not been authorized to start yet.
+         */
         $states = collect(app(StateRegistry::class)->classes())
             ->filter(fn (string $class): bool => in_array($class::phase(), [Phase::Queued, Phase::Running], true))
             ->map(fn (string $class): string => $class::getMorphClass())->all();

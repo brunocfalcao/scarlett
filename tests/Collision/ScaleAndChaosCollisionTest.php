@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Combines higher-contention scenarios with bounded scale and long-lived workers.
+ *
+ * Ten replacement writers and twelve finishing branches stress shared ownership.
+ * A synthetic 2,000-workflow population tests selective recovery and batched retention.
+ * Redis cases mix runtime children, replacement, deletion, and cooldown, then check
+ * stored outcomes. A continuous worker reports peak memory across 200 steps; this
+ * is a local regression check, not a claim about production capacity.
+ */
+
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -108,6 +118,11 @@ it('handles 2,000-workflow scale for currentForSubjects, selective recovery, bat
     $slotRows = [];
     $subjectIds = [];
 
+    /**
+     * Seed four populations: archived old history, unarchived old history, healthy
+     * running work, and one expired running attempt. Exact command counts then prove
+     * selectivity at scale instead of merely proving that the commands returned success.
+     */
     for ($i = 0; $i < 2000; $i++) {
         $workflowId = (string) Str::uuid();
         $stepId = (string) Str::uuid();
@@ -194,6 +209,10 @@ it('handles 2,000-workflow scale for currentForSubjects, selective recovery, bat
         }
     }
 
+    /**
+     * Insert fixtures in bounded batches to avoid parameter limits and separate data
+     * setup cost from the recovery and retention behavior being asserted.
+     */
     foreach (array_chunk($workflowRows, 500) as $chunk) {
         DB::table('scarlett_workflows')->insert($chunk);
     }

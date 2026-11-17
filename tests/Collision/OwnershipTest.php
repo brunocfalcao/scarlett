@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Races claims, cancellation, completion, recovery, admission, and guarded writes.
+ *
+ * Separate PHP processes compete on the same saved workflow or admission lock.
+ * Workers::race proves overlap before releasing the parent lock. Tokens, delivery
+ * counts, and consumer rows show which operation won and whether an outdated worker
+ * was rejected; merely checking eventual workflow status would miss duplicate work.
+ */
+
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;

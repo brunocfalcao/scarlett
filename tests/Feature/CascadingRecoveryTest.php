@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Exercises bottom-up recovery through nested ordinary and rescue branches.
+ *
+ * Run selected deliveries manually and inspect intermediate states, not just final
+ * workflow status. A parent must wait while descendant rescues are still running;
+ * skipped recovery nodes count as drained without pretending they produced results.
+ * Reversed declarations and varied outcomes keep traversal order from becoming a hidden rule.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\Node;

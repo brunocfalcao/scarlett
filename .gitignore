@@ -1,3 +1,5 @@
+# Installed dependencies, generated test/formatter caches, and temporary files
+# belong to this checkout, not the reusable package source. Keep local env values out.
 /vendor/
 /.phpunit.cache/
 /.temp/

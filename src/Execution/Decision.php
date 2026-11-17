@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Expresses a lifecycle hook's choice in a form the engine can interpret.
+ *
+ * A state settles the step, a delay requests another delivery, and children hands
+ * control to a newly declared child plan. producesResult distinguishes accepting a
+ * value from a non-success outcome. These flags matter even for a null result.
+ * Normally handle() returns ordinary data; Runner intercepts its child-plan decision
+ * specifically. before() and exception hooks use the other decision factories.
+ */
+
 namespace Scarlett\Execution;
 
 use Scarlett\Definition\ChildPlan;

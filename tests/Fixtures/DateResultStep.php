@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Returns a mutable date in a named timezone, then records the type verification
+ * actually receives. Rejecting the first verification forces a second delivery,
+ * proving both reads use the decoded saved result rather than rerunning the action.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Execution\Context;

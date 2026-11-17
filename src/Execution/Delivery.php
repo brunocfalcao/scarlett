@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Sends committed step delivery requests to Laravel's queue.
+ *
+ * Progression first saves an outbox row, meaning "send this attempt". Only after
+ * the transaction commits does this class publish a job. A short publishing lease
+ * keeps two publishers from deliberately sending the same row simultaneously.
+ * Sending can still succeed just before a publisher crashes, so duplicate delivery
+ * is expected; Engine::claim() decides whether the worker may actually run it.
+ */
+
 namespace Scarlett\Execution;
 
 use Illuminate\Database\Query\Builder;
@@ -49,6 +59,11 @@ final class Delivery
 
     private function publish(string $workflowId): void
     {
+        /**
+         * Only current attempt tokens may be published. Old unsent outbox rows can remain
+         * after cancellation or retry; joining on the step's current token excludes them.
+         * Priority orders publication, while the saved available_at controls job delay.
+         */
         $pending = DB::table('scarlett_deliveries')->join('scarlett_steps', 'scarlett_steps.id', '=', 'scarlett_deliveries.step_id')
             ->where('scarlett_steps.workflow_id', $workflowId)->whereNull('scarlett_deliveries.sent_at')
             ->whereColumn('scarlett_steps.attempt', 'scarlett_deliveries.attempt')

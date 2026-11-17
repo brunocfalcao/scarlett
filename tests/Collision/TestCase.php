@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Bootstraps an isolated application and fresh schema for each collision case.
+ *
+ * Check the actual database before any reset. Server databases use migrate:fresh;
+ * SQLite closes the old handle and replaces the dedicated file and WAL sidecars before
+ * migrating. Purge all opened connections during teardown so later tests cannot retain
+ * locks or sessions from this case. These tests must not run concurrently on the same
+ * fixed database; child contenders belong to one controlled case at a time.
+ */
+
 namespace Scarlett\Tests\Collision;
 
 use Illuminate\Support\Facades\DB;
@@ -22,8 +32,10 @@ class TestCase extends \Orchestra\Testbench\TestCase
     protected function defineDatabaseMigrations(): void
     {
         Environment::assertIsolated();
-        // Laravel's file-backed migrate:fresh truncates the file while PDO is open.
-        // Close every connection before replacing a WAL database and its sidecars.
+        /**
+         * Laravel's file-backed migrate:fresh truncates the file while PDO is open.
+         * Close every connection before replacing a WAL database and its sidecars.
+         */
         if (Environment::driver() === 'sqlite') {
             $path = DB::connection()->getDatabaseName();
             DB::purge();

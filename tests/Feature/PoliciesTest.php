@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks retry, throttle, cancellation, and ownership decisions around actions.
+ *
+ * ControlledStep logs construction and execution so tests can tell a harmless stale
+ * notification from an actual replay. Throttles postpone without spending failures;
+ * verification retries preserve saved actions. Outer rollback and held workflows
+ * also test that publication and cancellation follow committed authorization.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\Node;

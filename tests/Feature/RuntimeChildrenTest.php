@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks atomic child plans discovered after the parent has begun executing.
+ *
+ * The plan's local keys become owner-prefixed keys. Cases verify one-time handoff,
+ * staged result dependencies, inherited routing, selected-child result forwarding,
+ * and parent verification after descendants settle. Stale attempts and invalid plans
+ * must leave the owner unchanged; rollback must remove the entire handoff together.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;

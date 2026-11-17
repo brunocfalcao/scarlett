@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Proves that application writes and starting follow-up workflows commit together.
+ *
+ * The consumer_records table stands in for application data. Queue fakes retain
+ * publication assertions without executing jobs automatically. Cases inspect both
+ * the business row and workflow records after commit, rollback, lost ownership, and
+ * a missing admission gate; checking only the returned workflow would miss partial writes.
+ */
+
 use Illuminate\Database\RecordsNotFoundException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;

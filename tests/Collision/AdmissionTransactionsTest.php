@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Forces contention between application writes, workflow admission, and deletion.
+ *
+ * Workers::race holds the admission gate until independent PHP processes are waiting,
+ * then releases them. A single transaction attempt makes lock-order mistakes visible
+ * instead of hiding them behind deadlock retries. Older-snapshot cases separately
+ * prove authority is reread at the guarded-write boundary.
+ */
+
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;

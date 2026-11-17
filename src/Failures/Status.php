@@ -2,6 +2,14 @@
 
 declare(strict_types=1);
 
+/**
+ * Tracks the failure handler independently from its already-finished business step.
+ *
+ * Pending waits for ordinary descendants; Queued waits for a worker; Running owns
+ * a lease. Completed, Failed, and Cancelled are final handler outcomes. A failed
+ * hook remains failed history, while its original step keeps its own failure cause.
+ */
+
 namespace Scarlett\Failures;
 
 /**

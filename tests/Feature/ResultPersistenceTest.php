@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Separates a business return value from a successfully saved and verified result.
+ *
+ * Unsupported objects and injected write errors fail at persistence, after the action
+ * has run. Verification must use the decoded stored type on the first call and retries.
+ * A mapper that revokes authority during decode tests the recheck immediately before
+ * verification, where an earlier ownership read is no longer sufficient.
+ */
+
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Contracts\PayloadMapper;
 use Scarlett\Definition\Node;

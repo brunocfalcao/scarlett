@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Exercises malformed declarations and payload boundaries with small local fixtures.
+ *
+ * The deliberately invalid step classes below isolate one unsupported signature at
+ * a time, such as reference parameters or a static handle(). Encoding cases inspect
+ * strict restored types and registered aliases. Temporary alternate connections
+ * prove explicit model overrides differ from preserving a model-declared connection.
+ */
+
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;

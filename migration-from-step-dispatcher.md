@@ -6,6 +6,15 @@ serialized jobs are compatible. Do not point Scarlett at dispatcher tables.
 
 ## Install and upgrade the package
 
+### v2.3.4 contributor documentation
+
+Version 2.3.4 changes comments and documentation only. It preserves v2.3.3
+execution behavior, API, settings, dependencies and all eleven published migration
+files. No new migration or step conversion is required when upgrading from v2.3.3;
+requirements for earlier releases below still apply. Migration explanations live
+in the [contributor guide](docs/architecture.md#published-migration-responsibilities)
+so published migration files remain immutable, including their comments.
+
 Version 2.3.1 adds regression coverage and documentation only. Upgrading from
 2.3.0 requires no new migration or step conversion. All eleven migration files
 remain unchanged; upgrades from earlier versions still apply their pending files.

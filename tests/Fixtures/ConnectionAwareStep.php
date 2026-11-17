@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Observes whether the default database handle was released before each lifecycle
+ * boundary. Guarded writes then force reconnection and persist observable metadata.
+ * The fail and verification switches exercise action, verification, and terminal-hook paths.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Illuminate\Support\Facades\DB;

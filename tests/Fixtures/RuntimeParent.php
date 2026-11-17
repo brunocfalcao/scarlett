@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Recursively discovers one child until depth reaches zero. Handoff can originate
+ * from before(), handle(), or onException(), and each parent forwards its child result.
+ * Action and verification logs reveal duplicate handoffs or premature parent success.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Definition\Node;
@@ -22,6 +28,10 @@ final class RuntimeParent extends Step
 
     private function children(): Decision
     {
+        /**
+         * Reuse the local name "backup" at every depth. The engine must prefix each
+         * plan's keys with its distinct owner so nested children cannot collide.
+         */
         return Decision::children([
             new Node('backup', self::class, inputs: ['depth' => $this->depth - 1, 'value' => $this->value]),
         ], resultFrom: 'backup');

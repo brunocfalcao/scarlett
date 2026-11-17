@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.3.4 — 2026-11-17
+
+### Documentation
+
+- Explain package concepts, file responsibilities, lifecycle boundaries and the reasoning inside complex methods for contributors new to Scarlett.
+- Document test fixtures, collision workers, configuration, queue tooling and CI; use PHPDoc-style blocks for multiline PHP comments.
+- Record all eleven published migrations' responsibilities in the contributor guide while preserving the migration files byte-for-byte.
+
+### Upgrade
+
+- Documentation and comments only. Executable PHP, public APIs, configuration values, dependencies, test behavior and all published migration files remain unchanged from v2.3.3. No new migration or consumer conversion is required.
+- Source publication does not update, migrate or deploy consuming applications.
+
 ## 2.3.3 — 2026-11-16
 
 ### Tests

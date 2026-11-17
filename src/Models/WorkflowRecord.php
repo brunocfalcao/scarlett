@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * The database row representing one workflow's overall lifecycle and ownership.
+ *
+ * All its steps and failure hooks share this row as their first mutation lock.
+ * started_at distinguishes held work from authorized work; finished_at is set only
+ * after steps and terminal hooks settle. Results belong to steps, not this row.
+ * Read relationships here, but use Engine operations for lifecycle changes.
+ */
+
 namespace Scarlett\Models;
 
 use Illuminate\Database\Eloquent\Builder;

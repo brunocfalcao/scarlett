@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Creates observable lock contention between independent PHP processes.
+ *
+ * The parent locks the contested row, starts children, waits for readiness, and then
+ * confirms they are contending before releasing its lock. Readiness alone would
+ * only prove process startup, not a race. Each worker returns a machine-readable
+ * result and timings. Finally stops remaining children, rolls back any parent
+ * transaction, and removes only this race's temporary barrier directory.
+ */
+
 namespace Scarlett\Tests\Collision;
 
 use Illuminate\Support\Facades\DB;
@@ -32,6 +42,11 @@ final class Workers
                 $process->start();
                 $processes[] = $process;
             }
+            /**
+             * All contenders must have booted before the parent opens the release barrier.
+             * Server lock views then prove they actually reached the held row; SQLite's
+             * pre-BEGIN markers and acquisition times provide its writer-serialization proof.
+             */
             self::until(fn (): bool => count(glob($directory.'/*.ready')) === count($operations));
             touch($directory.'/release');
             if (Environment::driver() === 'sqlite') {

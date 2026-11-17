@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks retained payload meaning, queue routing, and history removal boundaries.
+ *
+ * A live ModelReference follows current row values while a plain snapshot retains
+ * old values. Date restoration preserves named timezones and old payload support.
+ * Retention compares instants rather than timezone labels and preserves active or
+ * newer work; routing checks inspect the actual jobs selected for publication.
+ */
+
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;

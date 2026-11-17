@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Exercises schema upgrades against retained data on the selected database driver.
+ *
+ * Keys differing only in case, accents, or trailing spaces must remain distinct.
+ * Scheduled dates beyond 2038 must persist. Rollback cases retain incompatible data
+ * and expect explicit refusal where narrowing would lose it, rather than accepting
+ * an apparently successful schema change that changed stored values.
+ */
+
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;

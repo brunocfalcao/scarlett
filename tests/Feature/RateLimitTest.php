@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks rolling-window capacity and per-attempt receipts at controlled times.
+ *
+ * Policies share a quota only when both name and key match. Claim action contexts
+ * explicitly, freeze time, and inspect saved grants so tests can prove exact boundaries,
+ * rounded-up waits, stale-worker rejection, and rollback. Action retries spend failures;
+ * waiting for quota does not. Migration and pruning cases preserve active windows.
+ */
+
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;

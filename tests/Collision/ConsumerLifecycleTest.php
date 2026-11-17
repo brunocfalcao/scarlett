@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Races slot replacement and failure-hook ownership using independent workers.
+ *
+ * The parent holds a known lock until both contenders are observed waiting. Final
+ * pointers, workflow states, and consumer write counts must reflect serialized
+ * operations, not two simultaneous owners. Veto cases require rollback to restore
+ * both the old workflow's authority and the application's related changes.
+ */
+
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;

@@ -1,4 +1,31 @@
-# Current state — 2026-11-16
+# Current state — 2026-11-17
+
+## v2.3.4 contributor documentation — 2026-11-17
+
+Complete documentation candidate from v2.3.3
+(`9f04760958d9f74f987ae1925e4b344f93976bd9`). Every eligible package change is
+included: source, configuration, tests, fixtures, worker scripts, tooling and
+release documentation. Canonical workspace docs stay outside package Git; the
+reference host is a separate verification target.
+
+Comments introduce concepts before explaining the approach and important control
+flow. Multiline PHP explanations use `/** ... */`. The architecture guide records
+the comment convention and all eleven migration responsibilities. Published
+migrations retain their exact bytes; all PHP executable tokens match v2.3.3.
+There is no runtime, public API, dependency, configuration-value or schema change,
+and no changed behavior requiring new regression tests.
+
+Fresh release verification passes: package 572 tests / 5210 assertions in 428.09
+seconds; reference host 64 tests / 452 assertions in 22.98 seconds. The host uses
+its documented exhaustive no-Git bootstrap and resolves this exact package source.
+Package Pint, strict Composer validation, shell syntax, whitespace and all 228
+local documentation links/anchors pass. Refactor and all 19 maintained-document
+reviews are complete; no runtime refactor or new regression case is warranted.
+
+Source publication and exact-SHA CI are verified separately by the preparation
+workflow before handoff. No consumer update, migration, deployment or
+package-registry submission is part of this release.
+
 
 ## v2.3.3 PostgreSQL fixture correction — 2026-11-16
 

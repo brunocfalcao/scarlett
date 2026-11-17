@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Pins extension and construction contracts that application code can depend on.
+ *
+ * Manual and container construction must both work. Accepted exceptions still pass
+ * verification, custom successful states still require legal transitions, and parent
+ * completion errors belong to the parent rather than its last child. Intermediate
+ * state and action-count assertions expose replay that a final status could hide.
+ */
+
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Configuration;
 use Scarlett\Definition\Node;

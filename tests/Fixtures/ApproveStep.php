@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Supplies a mapped Amount and custom Approved state from before().
+ * handle() throws if reached, making accidental execution after precheck acceptance
+ * observable instead of silently returning another successful value.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Execution\Context;

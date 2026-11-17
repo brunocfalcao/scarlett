@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * A successful custom state that counts calls to phase().
+ * Efficiency tests observe traversal work directly while preserving ordinary successful
+ * scheduling semantics; a correct final result alone would not reveal repeated scans.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\States\Completed;

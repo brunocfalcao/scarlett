@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Provides a failure hook with the saved facts about the original failed step.
+ *
+ * The original step might no longer be constructible: an input record may have been
+ * deleted or a service lookup may fail. This snapshot still supplies identity,
+ * subject, metadata, and stored input recipes. Its stable ID identifies the same
+ * logical failure even when the failure handler itself needs several attempts.
+ */
+
 namespace Scarlett\Execution;
 
 use InvalidArgumentException;

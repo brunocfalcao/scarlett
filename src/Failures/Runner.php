@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Executes a claimed terminal failure hook without rerunning the original action.
+ *
+ * First try to restore inputs and create the original step, then call onFailure().
+ * If preparation no longer works, pass saved metadata to onFailureWithoutInstance()
+ * instead. Errors in either hook spend this failure record's retry budget; they
+ * never enter the business action's onException() classifier. The failure ID stays
+ * stable across deliveries, allowing application effects to recognize repetition.
+ */
+
 namespace Scarlett\Failures;
 
 use Scarlett\Execution\ConnectionRelease;
@@ -50,6 +60,11 @@ final class Runner
             if (! $context->isCurrent()) {
                 return;
             }
+            /**
+             * Preparation failure is information for the static fallback, not a reason to
+             * skip failure handling. Pass the original snapshot plus its preparation error.
+             * Either hook must tolerate repetition after a crash before completion is saved.
+             */
             $failure = Failure::fromRecord($record, $preparationError);
             $context->releaseDatabaseConnection();
             if ($step !== null) {

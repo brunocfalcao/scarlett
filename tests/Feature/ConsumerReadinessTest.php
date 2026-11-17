@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Exercises application-facing guarantees across timing, ownership, and persistence.
+ *
+ * Queue fakes let cases stop at exact lifecycle boundaries and deliver chosen steps.
+ * Saved per-node budgets, guarded writes, subject lookup, and cancellation are checked
+ * through engine calls and database state. Independent branches and workflows provide
+ * controls so a rejected or failed step cannot appear correct by affecting everything.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\ExecutionOptions;

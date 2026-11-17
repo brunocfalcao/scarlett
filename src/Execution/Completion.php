@@ -2,6 +2,14 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks whether a requested successful state really represents an accepted result.
+ *
+ * Applications may register custom states, but registration does not automatically
+ * make them successful or allow every transition. Both the state's meaning and the
+ * transition from the current phase must agree before the engine stores success.
+ */
+
 namespace Scarlett\Execution;
 
 use InvalidArgumentException;

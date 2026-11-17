@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Races the last outcomes that can settle a nested parent or release its rescue.
+ *
+ * Each case saves action results before competing finish calls, isolating the race
+ * to durable outcome handling. Repeated rounds vary database scheduling. Count the
+ * new delivery and inspect every affected branch so a parent cannot complete early,
+ * queue recovery twice, or accept a child whose authority was revoked.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;

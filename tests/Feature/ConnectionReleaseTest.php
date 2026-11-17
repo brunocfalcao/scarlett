@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks connection-release cases that must remain harmless without a server.
+ *
+ * An in-memory SQLite connection owns the database's lifetime, so disconnecting it
+ * would erase the test data. An unused connection must also stay unopened: cleanup
+ * should not create a handle merely to close it. Server-backed reconnect and
+ * transaction boundaries are covered separately by collision tests.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Scarlett\Execution\ConnectionRelease;
 

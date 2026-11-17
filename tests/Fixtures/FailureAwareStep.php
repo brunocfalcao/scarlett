@@ -2,6 +2,13 @@
 
 declare(strict_types=1);
 
+/**
+ * Makes original action failure and later terminal-hook behavior independently
+ * controllable. Tests can break construction, classification, or the durable hook.
+ * The fallback reads saved literals without an instance; guarded metadata records
+ * the stable failure ID, original cause, and whether that fallback path was used.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Execution\Context;
@@ -62,6 +69,10 @@ class FailureAwareStep extends ControlledStep
 
     private static function record(Context $context, Failure $failure, string $name, bool $fallback): void
     {
+        /**
+         * Keep the observable effect inside the same ownership guard as real application
+         * writes. A stale terminal-hook attempt must not append another failure entry.
+         */
         $context->whileCurrent(function () use ($context, $failure, $name, $fallback): void {
             $workflow = WorkflowRecord::findOrFail($context->workflowId);
             $metadata = $workflow->metadata;

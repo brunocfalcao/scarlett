@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * The small message Laravel's queue transports for one action attempt.
+ *
+ * Keep IDs and timeout in the job rather than serializing a live step or its inputs.
+ * If delivered before available_at, release it until due. Runner and Engine then
+ * check the token and own business retry policy. Transport retries must not create
+ * an independent business retry loop that ignores Scarlett's persisted budget.
+ */
+
 namespace Scarlett\Jobs;
 
 use Illuminate\Bus\Queueable;

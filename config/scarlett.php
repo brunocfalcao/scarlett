@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Package defaults merged by ScarlettServiceProvider into the host configuration.
+ *
+ * Queue connection is Laravel's queue transport name, not a database connection.
+ * Timeout bounds a worker job; lease bounds attempt authority and must be longer.
+ * Action retries and result verification have independent budgets. Registry arrays
+ * are opt-in application extensions; an empty array means no custom registrations.
+ * Per-node execution overrides are validated and saved when work is admitted.
+ */
+
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Database\RecordsNotFoundException;
 use Scarlett\Policies\InputExceptionHandler;
@@ -25,12 +35,22 @@ return [
     'verification' => ['attempts' => 3, 'backoff_seconds' => [5, 30, 120]],
     'retry_policy' => RetryPolicy::class,
     'input_exception_handler' => InputExceptionHandler::class,
+    /**
+     * Preparation can fail before there is a step object to receive onException().
+     * These classes classify that failure as terminal; the configured input handler
+     * requests ordinary retries for other exceptions.
+     */
     'input_terminal_exceptions' => [
         InvalidArgumentException::class,
         RecordsNotFoundException::class,
         BindingResolutionException::class,
         Error::class,
     ],
+    /**
+     * Custom state classes need stable aliases, coherent scheduling semantics, and
+     * explicit allowed transitions. Payload aliases similarly decide which enum,
+     * model, or mapper classes retained data is allowed to restore.
+     */
     'states' => [],
     'transitions' => [],
     'payload_mappers' => [],

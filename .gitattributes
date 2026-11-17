@@ -1,3 +1,5 @@
+# Omit development-only fixtures and tooling from exported source archives.
+# Runtime package files and package-owned migrations remain available to consumers.
 /tests export-ignore
 /.github export-ignore
 /composer.lock export-ignore

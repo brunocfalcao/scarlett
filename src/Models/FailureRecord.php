@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Stores one terminal failure and the lifecycle of its follow-up hook.
+ *
+ * The snapshot and original cause describe the business step's failure. Status,
+ * attempt, lease, and error describe later attempts to handle that failure; they
+ * must not replace the original cause. unfinished() includes only hooks that still
+ * block workflow completion. Coordinator owns mutations and checks attempt authority.
+ */
+
 namespace Scarlett\Models;
 
 use Illuminate\Database\Eloquent\Builder;

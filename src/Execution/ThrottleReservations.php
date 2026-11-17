@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Allocates a shared rolling-window quota before a step performs its action.
+ *
+ * Each named policy has one database row containing grant timestamps. A worker
+ * locks that row, removes timestamps outside the window, and either reserves a
+ * place or calculates a wait. Workflow and step locks come first. A saved receipt
+ * on the attempt prevents repeated checks from charging the same attempt twice.
+ * No external request is made while these locks are held.
+ */
+
 namespace Scarlett\Execution;
 
 use Illuminate\Support\Facades\DB;
@@ -35,6 +45,10 @@ final class ThrottleReservations
                 throw new LogicException('An already persisted action cannot reserve another admission.');
             }
             $id = $policy->id();
+            /**
+             * A custom hook may ask the same policy twice. Match both attempt and policy ID
+             * so that repetition is free, while a new attempt still reserves its own capacity.
+             */
             $receipt = $step->throttle_reservations ?? [];
             $limits = ($receipt['attempt'] ?? null) === $context->attempt ? ($receipt['limits'] ?? []) : [];
             if (in_array($id, $limits, true)) {
@@ -55,6 +69,11 @@ final class ThrottleReservations
             if ((int) $bucket->expires_at > $now && ((int) $bucket->max_requests !== $policy->maxRequests || (int) $bucket->per_seconds !== $policy->perSeconds)) {
                 throw new LogicException('An active throttle has different limits. Drain its window before changing the named policy.');
             }
+            /**
+             * Keep timestamps in milliseconds to preserve the actual rolling window. Validate
+             * stored grants before using them, then discard only those outside the window.
+             * An expired bucket can start empty without retaining old quota history.
+             */
             $window = $policy->perSeconds * self::MILLISECONDS_PER_SECOND;
             $grants = json_decode($bucket->grants, true, flags: JSON_THROW_ON_ERROR);
             if (! is_array($grants) || ! array_is_list($grants)
@@ -64,6 +83,11 @@ final class ThrottleReservations
             $grants = (int) $bucket->expires_at <= $now ? []
                 : array_values(array_filter($grants, fn (int $grant): bool => $grant > $now - $window));
             sort($grants, SORT_NUMERIC);
+            /**
+             * When full, the oldest grant determines the first available place. Round up to
+             * whole seconds because queue delays use seconds; rounding down would retry before
+             * capacity becomes available and could repeatedly wake workers too early.
+             */
             if (count($grants) >= $policy->maxRequests) {
                 $release = $grants[0] + $window;
                 $delay = (int) ceil(($release - $now) / self::MILLISECONDS_PER_SECOND);

@@ -2,6 +2,14 @@
 
 declare(strict_types=1);
 
+/**
+ * Marks old finished workflows as archived without moving or deleting their rows.
+ *
+ * The caller explicitly chooses an age; RetentionCommand validates it and computes
+ * one cutoff. History then locks and rechecks each candidate, preserving live work
+ * and existing archive timestamps. This command does not impose a default retention age.
+ */
+
 namespace Scarlett\Commands;
 
 use Illuminate\Support\Carbon;

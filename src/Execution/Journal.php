@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Keeps a step's state, lifecycle timestamps, and transition history in agreement.
+ *
+ * A transition means changing state through the configured state machine, not just
+ * assigning a string. When a step finishes unsuccessfully, register its durable
+ * failure hook here so the state change and follow-up work share the same transaction.
+ * Callers must already hold the workflow lock; this class does not acquire it.
+ */
+
 namespace Scarlett\Execution;
 
 use Illuminate\Support\Facades\DB;
@@ -31,6 +40,11 @@ final class Journal
     /** Called only while holding the workflow lock. */
     public function transition(StepRecord $step, string $state, ?string $reason = null, FailureCause $cause = FailureCause::Decided): void
     {
+        /**
+         * Let the state package enforce allowed transitions first. Only then update
+         * execution timestamps and history; an invalid transition must not produce a
+         * history entry claiming that it happened.
+         */
         $from = (string) $step->state;
         $step->state->transitionTo($state);
         if ($step->state::phase() === Phase::Running) {

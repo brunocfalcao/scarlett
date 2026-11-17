@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * A custom final state that requests recovery and skips unused children.
+ * Tests register its alias to prove the engine reads state semantics rather than
+ * assuming every recovery-triggering state has the built-in Failed class name.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\States\Phase;

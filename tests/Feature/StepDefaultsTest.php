@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Distinguishes class defaults, complete node overrides, and package configuration.
+ *
+ * Read saved execution snapshots before running any step, then change configuration
+ * and prove existing snapshots stay fixed. Constructor logs show class defaults are
+ * obtained statically without constructing future business steps. A node options
+ * object replaces class options rather than merging each unset field with them.
+ */
+
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\ExecutionOptions;
 use Scarlett\Definition\Node;

@@ -1,3 +1,5 @@
+# Verify each supported PHP/database combination rather than treating SQLite
+# acceptance as proof of server locking, collation, or date-storage behavior.
 name: Tests
 on: [push, pull_request]
 permissions:
@@ -6,11 +8,14 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     strategy:
+      # Finish every lane even when one fails, keeping driver-specific failures visible.
       fail-fast: false
       matrix:
         php: ['8.4', '8.5']
         database: ['sqlite', 'mysql', 'pgsql']
     services:
+      # Database and Redis services are disposable CI fixtures. Environment.php
+      # checks the dedicated test database identity before resetting its schema.
       redis:
         image: redis:7
         ports: ['6379:6379']
@@ -42,6 +47,7 @@ jobs:
           --health-timeout=5s
           --health-retries=10
     env:
+      # Feature tests and independent collision workers read the same driver selection.
       SCARLETT_TEST_DRIVER: ${{ matrix.database }}
       SCARLETT_TEST_USER: ${{ matrix.database == 'pgsql' && 'postgres' || 'root' }}
       SCARLETT_TEST_PASSWORD: testing
@@ -54,5 +60,6 @@ jobs:
           coverage: none
       - run: composer install --no-interaction --prefer-dist
       - run: composer validate --strict
+      # CI verifies the actual suite rather than relying on a developer's coverage cache.
       - run: vendor/bin/pest --no-tia
       - run: vendor/bin/pint --test

@@ -2,6 +2,17 @@
 
 declare(strict_types=1);
 
+/**
+ * Archives or removes an entire workflow's retained execution records.
+ *
+ * Archiving adds a timestamp in place; it does not move rows to another table.
+ * Purging requires old archived history that is still fully settled when locked.
+ * Explicit deletion may also revoke running work when requested. Delete dependent
+ * rows deliberately, in foreign-key order, instead of relying on cascading deletes.
+ * Slot pointers have no foreign key; current-slot reads ignore missing workflows,
+ * and SubjectDeletion explicitly removes the deleted subject's slots.
+ */
+
 namespace Scarlett;
 
 use DateTimeInterface;
@@ -33,6 +44,11 @@ final class History
         $this->validateBatchSize($batchSize);
         $before = Carbon::instance($before)->setTimezone(config('app.timezone'));
         $archived = 0;
+        /**
+         * Fetch in bounded batches, then reread each candidate under its workflow lock.
+         * Selection can become stale while another process changes history; only the
+         * locked recheck decides whether this workflow is still eligible for archiving.
+         */
         $candidates = WorkflowRecord::whereNull('archived_at')->where('finished_at', '<', $before);
         foreach ($candidates->lazyById($batchSize) as $candidate) {
             $archived += DB::transaction(function () use ($candidate, $before): int {
@@ -103,6 +119,11 @@ final class History
     /** Explicit dependency order preserves restrictive foreign keys without cascading deletion. */
     private function remove(WorkflowRecord $workflow): void
     {
+        /**
+         * Remove failure records, transition history, and queue intents before steps;
+         * remove the workflow last. Restrictive foreign keys make this order necessary.
+         * This deletes retained engine data, not any external effects of the business action.
+         */
         $ids = $workflow->steps()->orderBy('id')->lockForUpdate()->pluck('id');
         $workflow->failures()->delete();
         DB::table('scarlett_history')->whereIn('step_id', $ids)->delete();

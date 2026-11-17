@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Publishes jobs for terminal failure hooks after their records are committed.
+ *
+ * The failure record itself holds its delivery intent, attempt token, and publisher
+ * lease. Conditional updates claim only the currently queued attempt. Reuse the
+ * original step's queue connection, queue name, and saved timeout so failure work
+ * uses the same execution environment. Queue errors are reported and left recoverable.
+ */
+
 namespace Scarlett\Failures;
 
 use Illuminate\Support\Facades\Bus;

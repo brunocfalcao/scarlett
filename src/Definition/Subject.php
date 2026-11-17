@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Identifies a business entity whose workflows the application owns.
+ *
+ * The pair distinguishes, for example, order "42" from invoice "42". Exact string
+ * comparison matters: a database collation may treat "Order" and "order" as equal,
+ * but ownership checks must not merge distinct subjects. This object does not load
+ * or require any particular application model.
+ */
+
 namespace Scarlett\Definition;
 
 use InvalidArgumentException;

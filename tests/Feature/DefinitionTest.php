@@ -1,6 +1,15 @@
 <?php
 
 declare(strict_types=1);
+
+/**
+ * Checks declarations before business work is constructed or persisted.
+ *
+ * Use small Node graphs for duplicate names, cycles, missing bindings, UTF-8 storage
+ * limits, and PHP parameter compatibility. Constructor logs prove validation does
+ * not instantiate future work. Shared service interfaces demonstrate that a container
+ * alias must be judged by its resolved value at execution, not by its lookup name.
+ */
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;

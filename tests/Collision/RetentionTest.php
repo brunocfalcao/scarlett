@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks retention decisions while other transactions change settlement state.
+ *
+ * A candidate selected earlier is not permission to remove it now: reread under the
+ * workflow lock, including unfinished failure hooks. Overlapping retention commands
+ * must count each eligible workflow once. Snapshot cases establish a separate committed
+ * change so an old consumer read cannot falsely prove the workflow is settled.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;

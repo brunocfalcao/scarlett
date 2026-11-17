@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Requires the exact same claimed Context in constructor and handler.
+ * It writes metadata through whileCurrent() and uses canRetry() in exception handling
+ * to prove authority injection and remaining-budget behavior reach business code.
+ */
+
 namespace Scarlett\Tests\Fixtures;
 
 use Scarlett\Execution\Context;

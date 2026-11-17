@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks descriptive labels and latest-invocation diagnostics without changing work.
+ *
+ * Reflection must not construct object defaults early. Actual constructor and handle
+ * arguments are captured only for the owning action attempt; verification retries
+ * preserve that snapshot. Cases include service descriptors, falsey values, unsupported
+ * defaults, stale writes, runtime-child labels, and upgrades of already populated rows.
+ */
+
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;

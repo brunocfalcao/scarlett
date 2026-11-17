@@ -2,6 +2,14 @@
 
 declare(strict_types=1);
 
+/**
+ * Demonstrates the basic scheduling contract with minimal business behavior.
+ *
+ * A queue fake exposes which stage is eligible before execution. A separate synchronous
+ * case lets committed outcomes immediately run a sequence without a scheduler tick.
+ * The false result is deliberate: readiness and result presence cannot use truthiness.
+ */
+
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;

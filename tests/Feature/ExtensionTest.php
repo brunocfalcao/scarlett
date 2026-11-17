@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Exercises supported payload and state-machine extension points.
+ *
+ * Round-trip nested and falsey values through real stored payloads, then compare PHP
+ * types as well as values. Custom success states must release work and remain eligible
+ * for retention. Unsupported objects, unknown versions, missing results, and wrong
+ * scalar types must fail explicitly rather than be coerced into a plausible result.
+ */
+
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\Node;

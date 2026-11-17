@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Checks deletion of every workflow lane belonging to one exact business subject.
+ *
+ * Guard subjects are supplied for the callback to inspect, but must remain unchanged.
+ * Inspect dependent history and attempt authority after approval; inspect callback
+ * writes and original authority after veto, exception, or outer rollback. This proves
+ * the operation is atomic rather than merely returning the expected boolean.
+ */
+
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;

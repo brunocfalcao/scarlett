@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Exercises nested parent settlement under varied delivery and declaration order.
+ *
+ * A parent waits for its whole child subtree, including retries and recovery. Logs
+ * and intermediate barriers prove no descendant or successor runs early. Reversed
+ * definitions, randomized delivery choices, and duplicate jobs expose accidental
+ * reliance on array order or exactly-once queue delivery.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\Node;
