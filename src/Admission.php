@@ -60,7 +60,7 @@ final class Admission
              * value and can continue; this switch is not a pause command for running workers.
              */
             DB::table('scarlett_control')->where('id', 'admission')->update(['cooldown' => true]);
-        });
+        }, (int) config('scarlett.transaction_attempts'));
     }
 
     public function reopen(): void

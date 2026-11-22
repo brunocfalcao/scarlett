@@ -21,6 +21,7 @@ use InvalidArgumentException;
 use RuntimeException;
 use Scarlett\Definition\Subject;
 use Scarlett\Exceptions\DeletionVetoed;
+use Scarlett\Models\StepRecord;
 use Scarlett\Models\WorkflowRecord;
 
 /**
@@ -29,6 +30,8 @@ use Scarlett\Models\WorkflowRecord;
  */
 final class SubjectDeletion
 {
+    private const STEP_LOCK_CHUNK_SIZE = 500;
+
     /**
      * @param  callable(Collection<int, WorkflowRecord>): (bool|null)  $prepare
      * @param  list<Subject>  $guardSubjects  Additional subjects locked for veto checks only.
@@ -91,9 +94,17 @@ final class SubjectDeletion
                 fn (Subject $subject): bool => $subject->matches($workflow->subject_type, $workflow->subject_id),
             ),
         );
+        /**
+         * Step locks follow workflow order, then step ID, in bounded batches. Locking reads
+         * stay current even if an enclosing MySQL transaction already has a snapshot.
+         */
+        $steps = new Collection;
+        foreach (collect($workflows->modelKeys())->chunk(self::STEP_LOCK_CHUNK_SIZE) as $chunk) {
+            $steps = $steps->merge(StepRecord::whereIn('workflow_id', $chunk)->orderBy('workflow_id')->orderBy('id')->lockForUpdate()->get());
+        }
+        $stepsByWorkflow = $steps->groupBy('workflow_id');
         foreach ($workflows as $workflow) {
-            // Locking reads stay current even if an enclosing MySQL transaction already has a snapshot.
-            $workflow->setRelation('steps', $workflow->steps()->orderBy('id')->lockForUpdate()->get());
+            $workflow->setRelation('steps', $stepsByWorkflow->get($workflow->id, new Collection));
         }
 
         return $workflows;
@@ -105,6 +116,8 @@ final class SubjectDeletion
         $ids = DB::table('scarlett_subject_slots')->where('subject_type', $subject->subjectType)
             ->where('subject_id', $subject->subjectId)->lockForUpdate()->get(['id', 'subject_type', 'subject_id'])
             ->filter(fn ($slot): bool => $subject->matches($slot->subject_type, $slot->subject_id))->pluck('id');
-        DB::table('scarlett_subject_slots')->whereIn('id', $ids)->delete();
+        if ($ids->isNotEmpty()) {
+            DB::table('scarlett_subject_slots')->whereIn('id', $ids)->delete();
+        }
     }
 }

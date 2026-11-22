@@ -368,15 +368,24 @@ Scarlett's versioned JSON representation and are restored when execution begins.
 Bare Eloquent models, arbitrary objects, closures and resources are rejected.
 Dates preserve named timezones; the codec also reads older version-1 date payloads.
 Configured enum, model and throttle registries may use string or integer aliases.
-Each visited payload node validates its type and required keys; unsupported
-resources fail without mapper resolution. When a `ModelReference` omits its connection
+Each visited payload node validates its type and required keys; a malformed
+stored node raises a single `InvalidArgumentException`, and unsupported resources
+fail without mapper resolution. Every stored string (values, keys, enum backing
+values, and a model reference's alias, id and connection) must be valid UTF-8.
+Nesting deeper than 254 levels, including self-containing arrays, is refused when
+the payload is written. When a `ModelReference` omits its connection
 override, restoration retains the model's declared connection; an explicit
 connection still wins. Version mapper aliases when their representation changes.
 A mapper's encoded value must itself be supported by the codec.
 
 Admission validates the configured retry policy, state/transition registry,
 payload-mapper and model/enum registries, throttle shapes and storage bounds before
-persisting work. Workflow subjects, routing identities and step keys must be valid
+persisting work. State classes must be concrete, state aliases must be unique UTF-8
+of at most 255 characters, `payload_mappers` must be an array, retry and verification
+backoff must be non-empty lists of non-negative integers, empty queue or connection
+names are refused, and workflow metadata must encode as JSON. A named rate limit
+refuses a name or sharing key that is not valid UTF-8 when the step builds it, before
+any quota is written. Workflow subjects, routing identities and step keys must be valid
 UTF-8 and fit their storage limits; labels must be valid UTF-8. A missing Scarlett
 admission control row fails closed rather than allowing an unguarded start.
 
@@ -444,6 +453,8 @@ Use `Policies\ExceptionHandler` as a reusable base for handlers called by your
 preparation handler; its default is `Policies\InputExceptionHandler`.
 `scarlett.input_terminal_exceptions` controls terminal classes (invalid arguments,
 missing records, invalid service bindings and PHP programming errors by default).
+A missing prerequisite result raises `ModelNotFoundException`, which is terminal under
+that default because it extends `RecordsNotFoundException`.
 A preparation handler cannot supply a successful result without a step instance.
 
 </details>
@@ -454,6 +465,7 @@ For long-running actions, v2.2.0 adds opt-in connection release through
 `SCARLETT_RELEASE_DATABASE_CONNECTION=true`. Existing steps and workflow signatures
 remain valid. Active transactions and in-memory SQLite are preserved. Queries
 reconnect as needed; this does not remove the database availability requirement.
+Only SQLite files, MySQL, MariaDB and PostgreSQL connections are eligible.
 See [automatic boundaries, explicit release and consumer constraints](database-connections.md).
 
 ## Operate in Laravel
@@ -471,10 +483,12 @@ Schedule::command('scarlett:recover')->everyMinute();
 
 Choose the recovery interval for your workload. Healthy progression does not
 need this command. It repairs lost deliveries and expired execution leases.
-You can also invoke `php artisan scarlett:recover` manually. Candidate reads use
-bounded ID-based batches; each recovery rechecks eligibility under the workflow
-lock. Version 2.2.1 closes candidate read cursors before writes, fixing concurrent
-SQLite recovery for action and terminal-hook attempts.
+You can also invoke `php artisan scarlett:recover` manually. Step candidates are
+selected in SQL by expired leases and due queued work with replayable deliveries;
+failure-hook candidates are read in bounded batches and checked in PHP. Each recovery
+rechecks eligibility under the workflow lock. Version 2.2.1 closes candidate read
+cursors before writes, fixing concurrent SQLite recovery for action and terminal-hook
+attempts.
 
 ```php
 use Scarlett\Facades\Scarlett;
@@ -498,7 +512,9 @@ required for that subtree; unrelated new workflows remain held. See
 
 Set `delivery_retry_seconds` above normal queue latency. Recovery cannot distinguish
 a lost job from an unclaimed backlog; replay can publish another copy of the same
-attempt, while atomic claims protect execution. Early jobs release until due without
+attempt, while atomic claims protect execution. A sent delivery becomes replayable
+only after both its send time and its availability time are older than this window.
+Each publish claim holds its own lease. Early jobs release until due without
 spending business retries. Unexpected job errors/timeouts fail the transport delivery;
 durable engine recovery remains available. Transport delay limits still apply.
 
@@ -597,6 +613,8 @@ Schedule::command('scarlett:purge --days=30')->daily()->withoutOverlapping();
 
 The application owns the schedule and ages; Scarlett registers no schedule.
 Commands report the number processed, including zero on an empty/repeated run.
+Each database transaction retries deadlocks up to `scarlett.transaction_attempts`.
+Purging deletes each workflow's history and delivery rows in chunks of 500.
 Invalid options exit with code `2` before any writes. Completed batches remain
 committed if a later database error interrupts a run; rerunning is safe.
 

@@ -58,6 +58,7 @@ it('preserves one delivery intent when two recovery commands race on a stale que
         ->where('attempt', $step->attempt)
         ->update([
             'sent_at' => now()->subMinutes(5),
+            'available_at' => now()->subMinutes(5),
             'publishing_until' => null,
         ]);
 
@@ -107,7 +108,7 @@ it('preserves one failure handler attempt when two recovery commands race', func
         expect(app(Coordinator::class)->claim($failure->id, $attempt))->not->toBeNull();
         $failure->update(['lease_until' => now()->subSecond()]);
     } else {
-        $failure->update(['sent_at' => now()->subMinutes(5), 'publishing_until' => null]);
+        $failure->update(['sent_at' => now()->subMinutes(5), 'available_at' => now()->subMinutes(5), 'publishing_until' => null]);
     }
     expect($failure->fresh()->status)->toBe($running ? Status::Running : Status::Queued);
     $untouched = app(Engine::class)->start(new Workflow([controlled('untouched')]));

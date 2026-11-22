@@ -6,6 +6,68 @@ serialized jobs are compatible. Do not point Scarlett at dispatcher tables.
 
 ## Install and upgrade the package
 
+### v2.4.0 hardening
+
+Version 2.4.0 is a source release built from v2.3.4. It adds no migration,
+configuration key or workflow signature. All eleven published migration files are
+unchanged, so upgrading from 2.3.x needs only ordinary `php artisan migrate` for any
+pending earlier migrations and no step conversion. Source publication does not
+update, migrate or deploy consuming applications.
+
+Behaviour changes to check before deploying:
+
+- **Refused by configuration and admission checks.** State classes that are not
+  concrete `StepState` classes, state aliases that are not valid UTF-8 or are longer
+  than 255 characters, abstract custom transition classes, and a
+  `scarlett.payload_mappers` setting that is not an array. When a workflow starts,
+  empty queue or connection names and metadata that does not encode as JSON are
+  refused before any work is saved.
+- **Refused when used.** A named rate limit whose name or sharing key is not valid
+  UTF-8 is refused when the step builds it, before any quota is written. A retry or
+  verification wait list that is not a plain list is refused when a delay is
+  calculated, instead of giving a zero-second wait; configured lists were already
+  checked before 2.4.0.
+- **Payload limits.** Every string stored beside a value must be valid UTF-8:
+  scalar strings, array keys, enum backing values, and a model reference's alias,
+  id and connection. Payloads nested deeper than 254 levels, including
+  self-containing arrays, are refused on write. A stored node with a missing or
+  wrong-typed field raises `InvalidArgumentException` instead of a PHP `TypeError`
+  or a silently coerced value.
+- **Replay grace and leases.** A sent delivery or failure-hook delivery is replayed
+  only after both its send time and its availability time are older than
+  `delivery_retry_seconds`. Each publish claim holds its own lease, so a stale
+  publisher cannot clear a newer claim.
+- **Recovery scans.** Step candidates are selected in SQL by expired leases and due
+  queued work with replayable deliveries. Failure-hook candidates are read in batches
+  and checked in PHP. Both recheck eligibility under the workflow lock.
+- **Deadlock retries and cleanup.** Starting a cooldown and history archive, delete
+  and purge now also run each database transaction with
+  `scarlett.transaction_attempts`, as admission, cooldown release, attempt locking,
+  replacement and subject deletion already did. Purging deletes each workflow's failure rows, then
+  its history and delivery rows in chunks of 500, before its steps and workflow.
+- **Connection release.** MariaDB joins SQLite files, MySQL and PostgreSQL as an
+  eligible driver. The supported test matrix still runs SQLite, MySQL and PostgreSQL.
+- **Throttled exception.** `Throttled` accepts optional `code` and `previous`
+  arguments, as `RuntimeException` does.
+- **Runner failures.** Business code runs in its own protected section; engine writes
+  that record the outcome run outside it. A result that cannot be saved becomes
+  `ResultPersistence`. A child plan the engine rejects becomes terminal:
+  `HandlerCrashed` when `onException()` returned it, otherwise `ResultPersistence`.
+
+Unchanged behaviour, now documented:
+
+- **Missing prerequisite results.** Prerequisite results are read in one query per
+  step. A missing `FromResult` source still raises `ModelNotFoundException`, which is
+  terminal under the default `scarlett.input_terminal_exceptions` because it extends
+  `RecordsNotFoundException`.
+- **Replacement subject IDs.** A replacement's subject identifier longer than 255
+  characters is rejected when the replacement starts, after your preparation callback
+  has written. The transaction rolls those writes back.
+
+Before upgrading a consumer, rerun its own replacement, deletion, retry and
+failure-hook tests against 2.4.0. Check queue and connection names, state classes and
+aliases, and any stored payload that may contain invalid UTF-8 or deep nesting.
+
 ### v2.3.4 contributor documentation
 
 Version 2.3.4 changes comments and documentation only. It preserves v2.3.3

@@ -91,6 +91,7 @@ class StepRecord extends Model
             'action_completed' => 'boolean',
             'available_at' => 'immutable_datetime',
             'lease_until' => 'immutable_datetime',
+            'priority' => 'integer',
             'failures' => 'integer',
             'verifications' => 'integer',
         ];

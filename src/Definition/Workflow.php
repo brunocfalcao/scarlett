@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Scarlett\Definition;
 
 use InvalidArgumentException;
+use JsonException;
 use ReflectionClass;
 use Scarlett\Execution\Invoker;
 use Scarlett\Step;
@@ -64,6 +65,27 @@ final readonly class Workflow
             throw new InvalidArgumentException('A workflow needs at least one step.');
         }
 
+        $this->validateSubject();
+
+        $this->validateMetadataStructure();
+
+        /**
+         * First pass: check each step and build a lookup of step key => Node.
+         * Do not follow parent/rescue links yet: a valid target may appear later in this
+         * array. Building the complete lookup first avoids requiring parents to be listed first.
+         */
+        $indexed = [];
+        foreach ($this->nodes as $node) {
+            $this->validateNode($node, $indexed);
+            $indexed[$node->key] = $node;
+        }
+
+        $this->validateAncestry($indexed);
+    }
+
+    /** Check the subject pair, its storage bounds and text before any step is inspected. */
+    private function validateSubject(): void
+    {
         /**
          * The subject needs both a kind and an identifier: "42" alone does not tell us
          * whether this is order 42 or invoice 42. Both null means no subject was supplied.
@@ -93,94 +115,112 @@ final readonly class Workflow
                 throw new InvalidArgumentException('Workflow subject values must not be empty.');
             }
         }
+    }
 
+    /** Check metadata encodes as JSON and holds only JSON values. */
+    private function validateMetadataStructure(): void
+    {
         /**
          * Metadata must survive a JSON round trip. Encoding first catches invalid text,
          * arrays containing themselves, and values such as infinity that JSON cannot store.
          * Encoding alone can accept objects, so validateMetadata() then checks every nested
          * value and limits the data to arrays, strings, numbers, booleans, and null.
          */
-        json_encode($this->metadata, JSON_THROW_ON_ERROR);
+        try {
+            json_encode($this->metadata, JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new InvalidArgumentException('Workflow metadata cannot be encoded as JSON: '.$exception->getMessage(), previous: $exception);
+        }
         $this->validateMetadata($this->metadata);
+    }
 
+    /** Check one step's identity, routing, bounds and signature; $indexed holds the steps already accepted. */
+    private function validateNode(mixed $node, array $indexed): void
+    {
         /**
-         * First pass: check each step and build a lookup of step key => Node.
-         * Do not follow parent/rescue links yet: a valid target may appear later in this
-         * array. Building the complete lookup first avoids requiring parents to be listed first.
+         * A key is the name other steps use to refer to this step. Check the entry's
+         * type before reading its fields, then require a name that can be referenced.
          */
-        $indexed = [];
-        foreach ($this->nodes as $node) {
-            /**
-             * A key is the name other steps use to refer to this step. Check the entry's
-             * type before reading its fields, then require a name that can be referenced.
-             */
-            if (! $node instanceof Node || $node->key === '') {
-                throw new InvalidArgumentException('Each step needs a non-empty identity.');
-            }
-
-            /**
-             * Parent and rescue values are other steps' keys. Queue and connection name
-             * where the worker should receive the job. These names and the PHP class name
-             * must fit their columns, just as this step's own key must fit its column.
-             */
-            $this->validateBoundedString($node->key, 'step identity', Node::MAX_KEY_LENGTH);
-            $this->validateBoundedString($node->step, 'step class');
-            $this->validateBoundedString($node->parent, 'parent identity', Node::MAX_KEY_LENGTH);
-            $this->validateBoundedString($node->rescues, 'rescue identity', Node::MAX_KEY_LENGTH);
-            $this->validateBoundedString($node->queue, 'queue');
-            $this->validateBoundedString($node->connection, 'connection');
-            $this->validateUtf8($node->title, 'step title');
-            $this->validateUtf8($node->description, 'step description');
-            $this->validateUtf8($node->canonical, 'step canonical name');
-
-            /**
-             * Two steps named "charge" would make a link to "charge" ambiguous. They would
-             * also occupy the same lookup entry, so reject duplicates before adding the node.
-             */
-            if (isset($indexed[$node->key])) {
-                throw new InvalidArgumentException("Duplicate step identity: {$node->key}");
-            }
-
-            /**
-             * The worker needs a concrete Scarlett Step with a handle() method to call.
-             * Reflection reads the class declaration without creating an object. Creating
-             * it here could run constructor code before its execution-time inputs are ready.
-             */
-            if (! is_subclass_of($node->step, Step::class) || ! (new ReflectionClass($node->step))->isInstantiable() || ! method_exists($node->step, 'handle')) {
-                throw new InvalidArgumentException("{$node->step} must be a concrete Scarlett step with a handle method.");
-            }
-
-            /**
-             * A parent says "I am a child of this step"; rescues says "I handle this step's
-             * failure". A recovery root cannot have both roles. This also means each node
-             * has at most one link to follow toward its owner; ordinary roots have neither.
-             */
-            if ($node->parent !== null && $node->rescues !== null) {
-                throw new InvalidArgumentException('A recovery root cannot also have a parent.');
-            }
-
-            /**
-             * A step may override settings such as timeout and retry count. snapshot()
-             * fills in defaults and validates the resulting settings; its return value is
-             * intentionally unused here because NodeStore obtains and saves them later.
-             * Check the constructor/handle inputs too, then add this valid node to the lookup.
-             */
-            $node->executionOptions()->snapshot();
-            $this->validateSignature($node);
-            $indexed[$node->key] = $node;
+        if (! $node instanceof Node || $node->key === '') {
+            throw new InvalidArgumentException('Each step needs a non-empty identity.');
         }
 
+        /**
+         * Parent and rescue values are other steps' keys. Queue and connection name
+         * where the worker should receive the job. These names and the PHP class name
+         * must fit their columns, just as this step's own key must fit its column.
+         */
+        $this->validateBoundedString($node->key, 'step identity', Node::MAX_KEY_LENGTH);
+        $this->validateBoundedString($node->step, 'step class');
+        $this->validateBoundedString($node->parent, 'parent identity', Node::MAX_KEY_LENGTH);
+        $this->validateBoundedString($node->rescues, 'rescue identity', Node::MAX_KEY_LENGTH);
+        $this->validateBoundedString($node->queue, 'queue');
+        $this->validateBoundedString($node->connection, 'connection');
+        /**
+         * Null inherits the package routing default, but an empty name is not a queue or
+         * connection. NodeStore keeps it as supplied, and dispatch later has no connector.
+         */
+        foreach (['queue' => $node->queue, 'connection' => $node->connection] as $field => $routing) {
+            if ($routing === '') {
+                throw new InvalidArgumentException("$field must not be empty.");
+            }
+        }
+        $this->validateUtf8($node->title, 'step title');
+        $this->validateUtf8($node->description, 'step description');
+        $this->validateUtf8($node->canonical, 'step canonical name');
+
+        /**
+         * Two steps named "charge" would make a link to "charge" ambiguous. They would
+         * also occupy the same lookup entry, so reject duplicates before adding the node.
+         */
+        if (isset($indexed[$node->key])) {
+            throw new InvalidArgumentException("Duplicate step identity: {$node->key}");
+        }
+
+        /**
+         * The worker needs a concrete Scarlett Step with a handle() method to call.
+         * Reflection reads the class declaration without creating an object. Creating
+         * it here could run constructor code before its execution-time inputs are ready.
+         */
+        if (! is_subclass_of($node->step, Step::class) || ! (new ReflectionClass($node->step))->isInstantiable() || ! method_exists($node->step, 'handle')) {
+            throw new InvalidArgumentException("{$node->step} must be a concrete Scarlett step with a handle method.");
+        }
+
+        /**
+         * A parent says "I am a child of this step"; rescues says "I handle this step's
+         * failure". A recovery root cannot have both roles. This also means each node
+         * has at most one link to follow toward its owner; ordinary roots have neither.
+         */
+        if ($node->parent !== null && $node->rescues !== null) {
+            throw new InvalidArgumentException('A recovery root cannot also have a parent.');
+        }
+
+        /**
+         * A step may override settings such as timeout and retry count. snapshot()
+         * fills in defaults and validates the resulting settings; its return value is
+         * intentionally unused here because NodeStore obtains and saves them later.
+         * Check the constructor/handle inputs too, then add this valid node to the lookup.
+         */
+        $node->executionOptions()->snapshot();
+        $this->validateSignature($node);
+    }
+
+    /** Check that every parent or rescue link names a step in this workflow and that each chain reaches a root without a cycle. */
+    private function validateAncestry(array $indexed): void
+    {
         /**
          * Second pass: follow each node's parent or rescue links until reaching a root.
          * Every referenced key must exist. A chain must also end: A -> B -> A is a cycle
          * with no root. Keep a separate visited-key set for each walk so different children
          * can legitimately share an ancestor without being mistaken for a cycle.
          */
+        $verified = [];
         foreach ($this->nodes as $node) {
             // Mark the starting node too, so A -> A is caught on the very first iteration.
             $seen = [$node->key => true];
             $ancestor = $node->parent ?? $node->rescues;
-            while ($ancestor !== null) {
+            // A key verified by an earlier walk already reaches a root, so this walk can stop there.
+            while ($ancestor !== null && ! isset($verified[$ancestor])) {
                 if (isset($seen[$ancestor])) {
                     throw new InvalidArgumentException('Cycle in workflow ancestry.');
                 }
@@ -194,6 +234,8 @@ final readonly class Workflow
                 $seen[$ancestor] = true;
                 $ancestor = $indexed[$ancestor]->parent ?? $indexed[$ancestor]->rescues;
             }
+            // Every key on a completed walk reaches a root without a cycle.
+            $verified += $seen;
         }
     }
 

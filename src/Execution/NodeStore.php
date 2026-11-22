@@ -27,6 +27,14 @@ final class NodeStore
 
     public function store(string $workflowId, Workflow $definition): void
     {
+        // Homogeneous fanouts share one step class; describe each class once per store call.
+        $signatures = [];
+        /**
+         * A node's prerequisites depend only on its parent link, rescue link and stage, so
+         * siblings that share all three share one list. Computing it once per sibling stage
+         * keeps a wide fanout from rescanning every node for every step it stores.
+         */
+        $stageDependencies = [];
         foreach ($definition->nodes as $node) {
             /**
              * Stage prerequisites control scheduling. Parent and rescue references also allow
@@ -34,7 +42,8 @@ final class NodeStore
              * adding them to the sibling-stage list. Save settings now so deployment changes
              * to defaults do not rewrite an active step's retry or timeout budget.
              */
-            $dependencies = $definition->dependencies($node);
+            $dependencies = $stageDependencies[json_encode([$node->parent, $node->rescues, $node->stage], JSON_THROW_ON_ERROR)]
+                ??= $definition->dependencies($node);
             StepRecord::create([
                 'id' => (string) Str::uuid(),
                 'workflow_id' => $workflowId,
@@ -43,7 +52,7 @@ final class NodeStore
                 'title' => $node->title,
                 'description' => $node->description,
                 'canonical' => $node->canonical,
-                'signature' => Signature::describe($node->step),
+                'signature' => $signatures[$node->step] ??= Signature::describe($node->step),
                 'state' => Pending::class,
                 'dependencies' => $dependencies,
                 'inputs' => $this->bindings->encode($node->inputs, array_merge($dependencies, array_filter([$node->parent, $node->rescues], fn (?string $key): bool => $key !== null))),

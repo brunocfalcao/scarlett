@@ -56,6 +56,11 @@ between lifecycle hooks. Action persistence precedes verification. On redelivery
 of saved work, only preparation and verification repeat. Constructors, mappers and
 service resolution must therefore tolerate repeated preparation.
 
+Each runner phase keeps business code in a guarded section; engine writes that record
+outcomes run outside it. A result that cannot be saved fails as `ResultPersistence`.
+A child plan the engine rejects is terminal: `HandlerCrashed` when it came from
+`onException()`, otherwise `ResultPersistence`.
+
 When configured, runners release the default connection before actions, verification
 and failure hooks, and on exit. `ConnectionRelease` checks transaction and PDO
 state without opening new connections. It changes no durable checkpoint or lock
@@ -68,7 +73,7 @@ must not cross those boundaries. See [connection lifetime](database-connections.
 | --- | --- | --- |
 | `Definition` | Declarative graph and execution defaults | No early business construction; node options replace class options |
 | `Inputs`, `Contracts/PayloadMapper` | Versioned JSON and late bindings | No arbitrary object serialization; aliases remain readable for retained work |
-| `Execution/ConnectionRelease` | Opt-in default-connection lifetime | Release only outside transactions; preserve memory SQLite; next query reconnects |
+| `Execution/ConnectionRelease` | Opt-in default-connection lifetime | Release only outside transactions; preserve memory SQLite; allow only sqlite, mysql, mariadb and pgsql; next query reconnects |
 | `Execution/Invoker` | Typed constructor/handler calls | Explicit names, exact Context injection and strict PHP invocation |
 | `Execution/Signature` | Declaration metadata and actual argument diagnostics | No eager defaults; current-attempt writes; no service/context serialization; diagnostic encoding failure does not reject an otherwise valid argument |
 | `Engine`, `Execution/WorkflowAttemptLock`, `Execution/Context` | Claims, leases and guarded mutations | A current token, running phase and future lease are all required; step and failure records share the workflow lock |
@@ -180,11 +185,14 @@ not an external-call profiler. `failures` and `verifications` are separate count
 
 Package feature tests exercise graph, payload, state and lifecycle contracts.
 `tests/Support/functions.php` drives actual attempts and compares explicit state
-maps. Collision tests use independent PHP workers and observed contention;
+maps; its `blockHistoryInsert()` makes the database refuse a history write with each
+driver's own trigger syntax, because CI runs feature tests on SQLite, MySQL and
+PostgreSQL. Collision tests use independent PHP workers and observed contention;
 `tests/Collision/Environment.php` refuses a database outside the dedicated test
 resources. Queue tests exercise serialized jobs through real database and Redis queues.
 Recovery enumerates candidates in bounded ID-based batches, closing read cursors
-before acquiring write locks. Each action or failure-handler recovery still
+before acquiring write locks. Step candidates are chosen by SQL predicates; failure-hook
+candidates are scanned in PHP through `Coordinator::needsRecovery()`. Each action or failure-handler recovery still
 rechecks current eligibility under its workflow lock. This prevents an old SQLite
 read snapshot from blocking a concurrent recovery write.
 
@@ -217,7 +225,8 @@ before owners. Later migrations extend these tables for existing installations.
 Adds a short lease for publishing a saved step job to the queue.
 
 A sender claims publishing_until before transport and clears it afterward. If it
-dies, recovery may reclaim the delivery once the lease expires. This lease protects
+dies, recovery may reclaim the delivery once the lease expires. Each claim keeps its own
+expiry, so a stale sender cannot clear a newer claim's lease. This lease protects
 publication, not business execution; the step's attempt and lease protect execution.
 
 ### `2026_11_13_000002_add_consumer_execution_options.php`

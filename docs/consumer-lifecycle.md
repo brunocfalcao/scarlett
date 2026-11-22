@@ -54,7 +54,9 @@ The current pointer remains after completion/failure and becomes `null` when its
 workflow history is deleted. There is no automatic adoption of workflows previously
 started with `start()`. Introduce slots at an explicit cutover boundary.
 
-Slots are exact, case-sensitive, non-empty UTF-8 identities. Each subject can have
+Slots are exact, case-sensitive, non-empty UTF-8 identities. A replacement's subject
+ID must be at most 255 characters; that check runs after your callback, so an
+oversized ID rolls back the callback's writes. Each subject can have
 several slots. Only the chosen slot is replaced; independent `start()` workflows
 and other slots remain untouched. A replacement respects admission cooldown.
 Revocation also cancels unfinished failure handlers and fences their writes.
@@ -294,11 +296,11 @@ Requesting a service/result binding or absent name throws `InvalidArgumentExcept
 | `Decided` | `decided` | The step's precheck or exception policy chose fail/stop |
 | `BudgetExhausted` | `budget_exhausted` | Business, preparation or verification retry budget exhausted |
 | `AttemptLost` | `attempt_lost` | Expired execution lease exhausted the applicable budget |
-| `HandlerCrashed` | `handler_crashed` | The action's exception classifier failed |
+| `HandlerCrashed` | `handler_crashed` | The action's exception classifier failed, or `onException()` returned a child plan the engine rejected |
 | `InputResolution` | `input_resolution` | Input/constructor failure classified terminal directly |
 | `ChildFailed` | `child_failed` | A failed/stopped child concluded its parent |
 | `ChildResultMissing` | `child_result_missing` | A runtime parent selected a child that settled without a durable result |
-| `ResultPersistence` | `result_persistence` | A successful action's result could not be stored |
+| `ResultPersistence` | `result_persistence` | A successful action's result could not be stored, or `handle()`/`before()` returned a child plan the engine rejected |
 | `CompletionRejected` | `completion_rejected` | A completion state transition was denied |
 
 `HandlerCrashed` describes the original exception classifier, not a crash of
@@ -408,6 +410,9 @@ Migration `000008_add_query_indexes` adds the indexes described in
 and comments only; it adds no migration or runtime API. Version 2.1.0 adds
 `000009_add_throttle_reservations`, with shared quota storage and per-attempt
 receipts. See [throttling rollout and rollback](throttling.md).
+
+Version 2.4.0 adds no migration, configuration key or workflow signature
+change; see the [migration guide](../migration-from-step-dispatcher.md).
 
 Version 2.3.0 adds `2026_11_14_193248_add_workflow_and_step_descriptions`, with
 nullable workflow/step labels and step signature/argument snapshots. Existing

@@ -30,13 +30,15 @@ final class History
 {
     public const DEFAULT_BATCH_SIZE = 100;
 
+    private const DELETE_CHUNK_SIZE = 500;
+
     public function archive(string $workflowId): bool
     {
         return DB::transaction(function () use ($workflowId): bool {
             $workflow = WorkflowRecord::whereKey($workflowId)->lockForUpdate()->firstOrFail();
 
             return $this->archiveLocked($workflow);
-        });
+        }, (int) config('scarlett.transaction_attempts'));
     }
 
     public function archiveBefore(DateTimeInterface $before, int $batchSize = self::DEFAULT_BATCH_SIZE): int
@@ -49,7 +51,7 @@ final class History
          * Selection can become stale while another process changes history; only the
          * locked recheck decides whether this workflow is still eligible for archiving.
          */
-        $candidates = WorkflowRecord::whereNull('archived_at')->where('finished_at', '<', $before);
+        $candidates = WorkflowRecord::whereNull('archived_at')->where('finished_at', '<', $before)->select('id');
         foreach ($candidates->lazyById($batchSize) as $candidate) {
             $archived += DB::transaction(function () use ($candidate, $before): int {
                 $workflow = WorkflowRecord::whereKey($candidate->id)->lockForUpdate()->first();
@@ -58,7 +60,7 @@ final class History
                 }
 
                 return (int) $this->archiveLocked($workflow);
-            });
+            }, (int) config('scarlett.transaction_attempts'));
         }
 
         return $archived;
@@ -80,7 +82,7 @@ final class History
         $this->validateBatchSize($batchSize);
         $before = Carbon::instance($before)->setTimezone(config('app.timezone'));
         $removed = 0;
-        foreach (WorkflowRecord::where('archived_at', '<', $before)->lazyById($batchSize) as $candidate) {
+        foreach (WorkflowRecord::where('archived_at', '<', $before)->select('id')->lazyById($batchSize) as $candidate) {
             $removed += DB::transaction(function () use ($candidate, $before): int {
                 $workflow = WorkflowRecord::whereKey($candidate->id)->lockForUpdate()->first();
                 if (! $workflow || ! $this->settled($workflow) || $workflow->archived_at === null || $workflow->archived_at >= $before) {
@@ -89,7 +91,7 @@ final class History
                 $this->remove($workflow);
 
                 return 1;
-            });
+            }, (int) config('scarlett.transaction_attempts'));
         }
 
         return $removed;
@@ -113,7 +115,7 @@ final class History
             $this->remove($workflow);
 
             return true;
-        });
+        }, (int) config('scarlett.transaction_attempts'));
     }
 
     /** Explicit dependency order preserves restrictive foreign keys without cascading deletion. */
@@ -124,16 +126,27 @@ final class History
          * remove the workflow last. Restrictive foreign keys make this order necessary.
          * This deletes retained engine data, not any external effects of the business action.
          */
+        // Every step ID of this workflow is held in memory at once; only the deletes below are chunked.
         $ids = $workflow->steps()->orderBy('id')->lockForUpdate()->pluck('id');
         $workflow->failures()->delete();
-        DB::table('scarlett_history')->whereIn('step_id', $ids)->delete();
-        DB::table('scarlett_deliveries')->whereIn('step_id', $ids)->delete();
+        /**
+         * Chunked IN lists stay under database bind-parameter limits for runtime-expanded
+         * graphs. Chunks keep the same order, and every dependent table is cleared before steps.
+         */
+        if ($ids->isNotEmpty()) {
+            foreach ($ids->chunk(self::DELETE_CHUNK_SIZE) as $chunk) {
+                DB::table('scarlett_history')->whereIn('step_id', $chunk)->delete();
+            }
+            foreach ($ids->chunk(self::DELETE_CHUNK_SIZE) as $chunk) {
+                DB::table('scarlett_deliveries')->whereIn('step_id', $chunk)->delete();
+            }
+        }
         $workflow->steps()->delete();
         $workflow->delete();
     }
 
     private function settled(WorkflowRecord $workflow): bool
     {
-        return $workflow->finished_at !== null && $workflow->failures()->unfinished()->lockForUpdate()->first() === null && $workflow->steps()->lockForUpdate()->get()->every(fn ($step): bool => $step->state::phase() === Phase::Settled);
+        return $workflow->finished_at !== null && $workflow->failures()->unfinished()->lockForUpdate()->first() === null && $workflow->steps()->select(['id', 'state'])->lockForUpdate()->get()->every(fn ($step): bool => $step->state::phase() === Phase::Settled);
     }
 }

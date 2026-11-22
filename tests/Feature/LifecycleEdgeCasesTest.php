@@ -216,6 +216,22 @@ it('reports Context::canRetry() accurately at final attempts and expired leases 
     expect($failureContext->canRetry())->toBeFalse();
 });
 
+it('reports the budget of the phase it runs in when action and verification budgets differ', function (int $actionAttempts, int $verificationAttempts, bool $actionPhase, bool $verifyPhase) {
+    $engine = app(Engine::class);
+    $flow = $engine->start(new Workflow([
+        new Node('step', FallbackOnlyFailureStep::class, inputs: ['label' => 'asymmetric'], execution: new ExecutionOptions(attempts: $actionAttempts, verificationAttempts: $verificationAttempts)),
+    ]));
+    $step = $flow->steps()->sole();
+    $engine->claim($step->id, $step->attempt);
+    $context = new Context($flow->id, $step->id, $step->attempt, 0);
+    expect($context->canRetry())->toBe($actionPhase);
+    $engine->saveAction($step->id, $step->attempt, 'saved', Completed::class);
+    expect($context->canRetry())->toBe($verifyPhase);
+})->with([
+    'verification has retries left after the action used its last' => [1, 3, false, true],
+    'verification is spent while the action still has retries' => [3, 1, true, false],
+]);
+
 it('delegates Step::onFailure() to static::onFailureWithoutInstance() by default', function () {
     $flow = app(Engine::class)->start(new Workflow([
         new Node('fallback', FallbackOnlyFailureStep::class, inputs: ['label' => 'delegated-ok']),
@@ -446,3 +462,15 @@ final class InvalidChildrenInputExceptionHandler extends InputExceptionHandler
         return Decision::children([controlled('should-not-expand')]);
     }
 }
+
+it('keeps the upstream cause, code and default message of a Throttled request, and accepts a zero delay', function () {
+    $cause = new RuntimeException('Upstream answered 429.');
+
+    $throttled = new Throttled(30, previous: $cause, code: 429);
+
+    expect($throttled->seconds)->toBe(30)
+        ->and($throttled->getPrevious())->toBe($cause)
+        ->and($throttled->getCode())->toBe(429)
+        ->and($throttled->getMessage())->toBe('Work temporarily throttled.')
+        ->and((new Throttled(0))->seconds)->toBe(0);
+});

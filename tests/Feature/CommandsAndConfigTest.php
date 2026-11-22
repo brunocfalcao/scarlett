@@ -22,6 +22,7 @@ use Scarlett\Engine;
 use Scarlett\Facades\Scarlett;
 use Scarlett\Failures\Status;
 use Scarlett\Models\WorkflowRecord;
+use Scarlett\Policies\RetryPolicy;
 use Scarlett\Recovery;
 use Scarlett\Tests\Fixtures\FailureAwareStep;
 
@@ -160,6 +161,8 @@ it('rejects invalid registry, retry policy and throttle configuration before adm
     'invalid throttle limits' => ['throttles', ['bad' => ['max_requests' => 0, 'per_seconds' => 60]], 'scarlett.throttles'],
     'invalid states shape' => ['states', 'not-a-list', 'scarlett.states'],
     'invalid transition shape' => ['transitions', [['invalid']], 'scarlett.transitions'],
+    'null payload mappers' => ['payload_mappers', null, 'scarlett.payload_mappers'],
+    'string payload mappers' => ['payload_mappers', 'amount', 'scarlett.payload_mappers'],
 ]);
 
 it('rejects invalid ExecutionOptions retry and verification policies before admission', function (ExecutionOptions $options) {
@@ -177,3 +180,20 @@ it('rejects invalid ExecutionOptions retry and verification policies before admi
     'non-list verification backoff' => [new ExecutionOptions(verificationBackoffSeconds: ['first' => 1])],
     'negative verification backoff' => [new ExecutionOptions(verificationBackoffSeconds: [-1])],
 ]);
+
+it('rejects a retry backoff schedule that is not a list when a delay is requested', function (array $schedule) {
+    config(['scarlett.retry.backoff_seconds' => $schedule]);
+
+    expect(fn () => (new RetryPolicy)->delay(1))->toThrow(InvalidArgumentException::class, 'non-empty list');
+})->with([
+    'associative schedule' => [['first' => 5]],
+    'gapped schedule' => [[1 => 5]],
+]);
+
+it('returns the scheduled delay for a list backoff and reuses its last entry', function () {
+    config(['scarlett.retry.backoff_seconds' => [0, 5]]);
+
+    expect((new RetryPolicy)->delay(1))->toBe(0)
+        ->and((new RetryPolicy)->delay(2))->toBe(5)
+        ->and((new RetryPolicy)->delay(9))->toBe(5);
+});

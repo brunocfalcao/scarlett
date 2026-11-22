@@ -44,9 +44,16 @@ final readonly class Context
         }
 
         $step = StepRecord::find($this->stepId);
+        if ($step === null || ! $this->isCurrent()) {
+            return false;
+        }
+        /**
+         * A saved action leaves only verification to retry, and the engine spends that
+         * separate budget for the same failure. Ask the policy with the same flag.
+         */
+        $verification = $step->action_completed;
 
-        return $step !== null && $this->isCurrent()
-            && app(config('scarlett.retry_policy'))->permits($step->nextFailureCount(), false, $step);
+        return app(config('scarlett.retry_policy'))->permits($step->nextFailureCount($verification), $verification, $step);
     }
 
     public function heartbeat(): bool

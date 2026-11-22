@@ -21,9 +21,12 @@ use Illuminate\Support\Str;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
+use Scarlett\Execution\Decision;
+use Scarlett\Execution\RuntimeChildren;
 use Scarlett\History;
 use Scarlett\Inputs\ModelReference;
 use Scarlett\Inputs\PayloadCodec;
+use Scarlett\Models\StepRecord;
 use Scarlett\Tests\Fixtures\EchoStep;
 use Scarlett\Tests\Fixtures\SourceRecord;
 
@@ -101,3 +104,18 @@ it('preserves named date timezones and daylight-saving arithmetic while reading 
     $legacy = ['version' => 1, 'value' => ['type' => 'date', 'data' => '2026-10-01T12:00:00.123456+01:00']];
     expect($codec->decode($legacy)->getTimezone()->getName())->toBe('+01:00');
 });
+
+it('inherits an owner priority as an integer for runtime children even when the driver hydrates it as a string', function (mixed $hydratedPriority) {
+    Queue::fake();
+    $engine = app(Engine::class);
+    $flow = $engine->start(new Workflow([new Node('parent', EchoStep::class, priority: 9)]));
+    $parent = $flow->steps()->sole();
+    $engine->claim($parent->id, $parent->attempt);
+    $owner = StepRecord::query()->whereKey($parent->id)->sole();
+    $owner->setRawAttributes([...$owner->getAttributes(), 'priority' => $hydratedPriority]);
+    app(RuntimeChildren::class)->admit($owner, Decision::children([new Node('inherited', EchoStep::class)]));
+    $child = $flow->steps()->where('key', '!=', 'parent')->sole();
+    expect($owner->priority)->toBe(9)
+        ->and($child->priority)->toBe(9)
+        ->and($child->queue)->toBe($parent->queue);
+})->with([9, '9']);

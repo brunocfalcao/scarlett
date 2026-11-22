@@ -11,6 +11,7 @@ declare(strict_types=1);
  * the operation is atomic rather than merely returning the expected boolean.
  */
 
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -128,4 +129,53 @@ it('runs the callback for empty subjects and restores deletion when an outer tra
         DB::rollBack();
     }
     expect($engine->current($slot))->toBe($flow->id)->and($flow->fresh()->status)->toBe('running');
+});
+
+it('locks every retained workflow step set in one batched read before the consumer callback runs', function () {
+    $engine = app(Engine::class);
+    $flows = collect(range(1, 4))->map(fn (int $index) => $engine->start(new Workflow([controlled("batch-{$index}")], 'document', 'batch-delete')));
+    $statements = [];
+    DB::listen(function (QueryExecuted $query) use (&$statements): void {
+        $statements[] = str_replace('`', '"', $query->sql);
+    });
+    $stepReadsBeforeCallback = null;
+    expect($engine->deleteSubject(new Subject('document', 'batch-delete'), function (Collection $locked) use (&$stepReadsBeforeCallback, &$statements): bool {
+        $stepReadsBeforeCallback = collect($statements)->filter(fn (string $sql): bool => str_contains($sql, 'from "scarlett_steps"'))->count();
+        expect($locked->count())->toBe(4)
+            ->and($locked->every(fn ($flow): bool => $flow->relationLoaded('steps') && $flow->steps->count() === 1))->toBeTrue();
+
+        return true;
+    }))->toBeTrue();
+    $stepRead = collect($statements)->first(fn (string $sql): bool => str_contains($sql, 'from "scarlett_steps"'));
+    expect($stepReadsBeforeCallback)->toBe(1)
+        ->and($stepRead)->toContain('order by "workflow_id" asc, "id" asc')
+        ->and(WorkflowRecord::whereKey($flows->pluck('id')->all())->count())->toBe(0);
+});
+
+it('does not issue a slot delete when the subject has no slot pointers', function () {
+    $statements = [];
+    DB::listen(function (QueryExecuted $query) use (&$statements): void {
+        $statements[] = str_replace('`', '"', $query->sql);
+    });
+    expect(app(Engine::class)->deleteSubject(new Subject('document', 'nothing-here'), fn (): bool => true))->toBeTrue();
+    expect(collect($statements)->filter(fn (string $sql): bool => str_starts_with($sql, 'delete from "scarlett_subject_slots"'))->count())->toBe(0);
+});
+
+it('reads step locks in bounded batches of workflows, keeping one lock order across batches', function () {
+    $engine = app(Engine::class);
+    $flows = collect(range(1, 501))->map(fn (int $index) => $engine->start(new Workflow([controlled("bulk-{$index}")], 'document', 'bulk-delete')));
+    $statements = [];
+    DB::listen(function (QueryExecuted $query) use (&$statements): void {
+        $statements[] = str_replace('`', '"', $query->sql);
+    });
+    $stepReadsBeforeCallback = null;
+    expect($engine->deleteSubject(new Subject('document', 'bulk-delete'), function (Collection $locked) use (&$stepReadsBeforeCallback, &$statements): bool {
+        $stepReadsBeforeCallback = collect($statements)->filter(fn (string $sql): bool => str_contains($sql, 'from "scarlett_steps"'))->count();
+        expect($locked->count())->toBe(501)
+            ->and($locked->every(fn ($flow): bool => $flow->relationLoaded('steps') && $flow->steps->count() === 1))->toBeTrue();
+
+        return true;
+    }))->toBeTrue();
+    expect($stepReadsBeforeCallback)->toBe(2)
+        ->and(WorkflowRecord::whereKey($flows->pluck('id')->all())->count())->toBe(0);
 });

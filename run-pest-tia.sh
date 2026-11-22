@@ -6,21 +6,23 @@
 # Shell files use native # comments because PHP block syntax is not valid here.
 set -euo pipefail
 
-# Let CI's selected PHP/database matrix run the requested tests directly. Forward
-# arguments unchanged so filtering or a fresh invocation retains its original meaning.
+# --fresh and --filtered only control TIA. Remove them from every --no-tia run, so a
+# non-TIA run never depends on Pest ignoring flags that have no meaning without TIA.
+no_tia_arguments=(--no-tia)
+for argument in "$@"; do
+    case "$argument" in --fresh|--filtered) ;; *) no_tia_arguments+=("$argument");; esac
+done
+
+# Let CI's selected PHP/database matrix run the requested tests directly, without TIA.
 if [[ "${CI:-}" =~ ^(1|true)$ ]]; then
-    exec php ./vendor/bin/pest --no-tia "$@"
+    exec php ./vendor/bin/pest "${no_tia_arguments[@]}"
 fi
 
 # Pest cannot anchor TIA until a repository has its first commit.
 # This diagnosed bootstrap case remains exhaustive; it never reports cached proof.
 if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
     echo 'TIA baseline unavailable before the first commit; running exhaustive bootstrap verification.' >&2
-    arguments=(--no-tia)
-    for argument in "$@"; do
-        case "$argument" in --fresh|--filtered) ;; *) arguments+=("$argument");; esac
-    done
-    exec php ./vendor/bin/pest "${arguments[@]}"
+    exec php ./vendor/bin/pest "${no_tia_arguments[@]}"
 fi
 
 if command -v herd >/dev/null 2>&1 && herd list --raw 2>/dev/null | grep -q '^coverage '; then

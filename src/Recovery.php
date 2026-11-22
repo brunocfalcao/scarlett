@@ -74,11 +74,24 @@ final class Recovery
          * states in queued/running phases must be eligible too. Held workflows are excluded
          * because their work has not been authorized to start yet.
          */
-        $states = collect(app(StateRegistry::class)->classes())
-            ->filter(fn (string $class): bool => in_array($class::phase(), [Phase::Queued, Phase::Running], true))
-            ->map(fn (string $class): string => $class::getMorphClass())->all();
+        $states = collect(app(StateRegistry::class)->classes());
+        $queuedStates = $states->filter(fn (string $class): bool => $class::phase() === Phase::Queued)
+            ->map(fn (string $class): string => $class::getMorphClass())->values()->all();
+        $runningStates = $states->filter(fn (string $class): bool => $class::phase() === Phase::Running)
+            ->map(fn (string $class): string => $class::getMorphClass())->values()->all();
 
-        return StepRecord::whereIn('state', $states)
+        /**
+         * The database applies the same eligibility as needsRecovery(): an expired lease for
+         * running steps, and a due step with a replayable delivery for queued steps. Scanning
+         * then costs the same however many healthy queued steps are waiting.
+         */
+        return StepRecord::whereIn('state', [...$queuedStates, ...$runningStates])
+            ->where(fn ($query) => $query
+                ->where(fn ($running) => $running->whereIn('state', $runningStates)->whereNotNull('lease_until')->where('lease_until', '<=', now()))
+                ->orWhere(fn ($queued) => $queued->whereIn('state', $queuedStates)->where('available_at', '<=', now())
+                    ->whereExists(app(Delivery::class)->replayableRows()
+                        ->whereColumn('scarlett_deliveries.step_id', 'scarlett_steps.id')
+                        ->whereColumn('scarlett_deliveries.attempt', 'scarlett_steps.attempt'))))
             ->whereHas('workflow', fn ($query) => $query->where('status', 'running'))
             ->when($workflowId !== null, fn ($query) => $query->where('workflow_id', $workflowId))->lazyById(100);
     }

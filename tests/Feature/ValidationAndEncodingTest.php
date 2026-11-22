@@ -11,7 +11,9 @@ declare(strict_types=1);
  * prove explicit model overrides differ from preserving a model-declared connection.
  */
 
+use DateTimeImmutable;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Scarlett\Definition\Node;
@@ -24,9 +26,13 @@ use Scarlett\Execution\Invoker;
 use Scarlett\Inputs\ModelReference;
 use Scarlett\Inputs\PayloadCodec;
 use Scarlett\Step;
+use Scarlett\Tests\Fixtures\Amount;
+use Scarlett\Tests\Fixtures\ConstructionTrap;
+use Scarlett\Tests\Fixtures\CountingAmountMapper;
 use Scarlett\Tests\Fixtures\EchoStep;
 use Scarlett\Tests\Fixtures\EnumStep;
 use Scarlett\Tests\Fixtures\IntPriority;
+use Scarlett\Tests\Fixtures\InvalidUtf8Status;
 use Scarlett\Tests\Fixtures\InvokerTypesStep;
 use Scarlett\Tests\Fixtures\SourceRecord;
 use Scarlett\Tests\Fixtures\StringStatus;
@@ -163,6 +169,83 @@ it('reports malformed payload nodes and unsupported resources without resolving 
     }
 });
 
+it('rejects malformed payload values before restoring them', function (array $payload, string $message) {
+    expect(fn () => app(PayloadCodec::class)->decode($payload))->toThrow(InvalidArgumentException::class, $message);
+})->with([
+    'missing value' => [['version' => 2], 'payload node'],
+    'non-array value' => [['version' => 2, 'value' => 'text'], 'payload node'],
+    'scalar holding an array' => [['version' => 2, 'value' => ['type' => 'scalar', 'data' => [1]]], 'payload node'],
+    'float from text' => [['version' => 2, 'value' => ['type' => 'float', 'data' => 'abc']], 'payload node'],
+    'array holding a scalar member' => [['version' => 2, 'value' => ['type' => 'array', 'data' => [123]]], 'payload node'],
+    'collection of a scalar' => [['version' => 2, 'value' => ['type' => 'collection', 'data' => ['type' => 'scalar', 'data' => 'oops']]], 'payload node'],
+    'date from an integer' => [['version' => 2, 'value' => ['type' => 'date', 'data' => 123]], 'payload node'],
+    'date from unparseable text' => [['version' => 2, 'value' => ['type' => 'date', 'data' => 'not a date']], 'payload node'],
+    'enum with an array alias' => [['version' => 2, 'value' => ['type' => 'enum', 'alias' => [], 'data' => 'done']], 'payload node'],
+    'mapped node with scalar data' => [['version' => 2, 'value' => ['type' => 'mapped', 'alias' => 'amount', 'data' => 'bad']], 'payload node'],
+    'model with an array identifier' => [['version' => 2, 'value' => ['type' => 'model', 'alias' => 'source', 'id' => [1, 2], 'connection' => null]], 'payload node'],
+]);
+
+it('rejects configured classes that do not qualify before constructing them', function (array $payload, string $message) {
+    config([
+        'scarlett.models' => ['trap' => ConstructionTrap::class],
+        'scarlett.payload_mappers' => ['trap' => ConstructionTrap::class],
+    ]);
+
+    expect(fn () => app(PayloadCodec::class)->decode($payload))->toThrow(InvalidArgumentException::class, $message);
+})->with([
+    'model alias to a non-model class' => [['version' => 2, 'value' => ['type' => 'model', 'alias' => 'trap', 'id' => 1, 'connection' => null]], 'Eloquent models'],
+    'mapped alias to a non-mapper class' => [['version' => 2, 'value' => ['type' => 'mapped', 'alias' => 'trap', 'data' => ['type' => 'scalar', 'data' => 1]]], 'PayloadMapper'],
+]);
+
+it('restores well-formed payload nodes of every type unchanged', function () {
+    $codec = app(PayloadCodec::class);
+    $payload = ['version' => 2, 'value' => ['type' => 'array', 'data' => [
+        'float' => ['type' => 'float', 'data' => 2],
+        'scalar' => ['type' => 'scalar', 'data' => 'text'],
+        'nothing' => ['type' => 'scalar', 'data' => null],
+        'collection' => ['type' => 'collection', 'data' => ['type' => 'array', 'data' => [['type' => 'scalar', 'data' => 'oops']]]],
+        'date' => ['type' => 'date', 'data' => '2026-11-22T10:00:00.000000+00:00', 'timezone' => 'UTC'],
+    ]]];
+
+    $decoded = $codec->decode($payload);
+
+    expect($decoded['float'])->toBe(2.0)
+        ->and($decoded['scalar'])->toBe('text')
+        ->and($decoded['nothing'])->toBeNull()
+        ->and($decoded['collection'])->toBeInstanceOf(Collection::class)
+        ->and($decoded['collection']->all())->toBe(['oops'])
+        ->and($decoded['date'])->toBeInstanceOf(DateTimeImmutable::class);
+});
+
+it('rejects malformed UTF-8 text and keys at encode time', function (mixed $value) {
+    expect(fn () => app(PayloadCodec::class)->encode($value))->toThrow(InvalidArgumentException::class, 'valid UTF-8');
+})->with([
+    'invalid UTF-8 string' => ["\xB1"],
+    'invalid UTF-8 nested string' => [['label' => "caf\xE9"]],
+    'invalid UTF-8 array key' => [["\xB1" => 'value']],
+]);
+
+it('rejects arrays that contain themselves instead of recursing without bound', function () {
+    $value = [];
+    $value[] = &$value;
+
+    expect(fn () => app(PayloadCodec::class)->encode($value))->toThrow(InvalidArgumentException::class, 'nested too deeply');
+});
+
+it('encodes valid UTF-8 strings and keys unchanged', function () {
+    $codec = app(PayloadCodec::class);
+    $value = ['名前' => 'café', 'nested' => [['label' => 'naïve']]];
+
+    expect($codec->decode($codec->encode($value)))->toBe($value);
+});
+
+it('refuses custom objects when payload mappers are not configured as an array', function () {
+    config(['scarlett.payload_mappers' => null]);
+
+    expect(fn () => app(PayloadCodec::class)->encode(new Amount(1)))
+        ->toThrow(InvalidArgumentException::class, 'scarlett.payload_mappers');
+});
+
 it('restores a ModelReference using its explicit database connection', function () {
     $altPath = tempnam(sys_get_temp_dir(), 'scarlett-model-conn-');
     try {
@@ -261,3 +344,50 @@ class CustomConnectionSourceRecord extends SourceRecord
 {
     protected $connection = 'alt_source';
 }
+
+it('resolves each configured payload mapper once per encode call', function () {
+    CountingAmountMapper::$constructions = 0;
+    config(['scarlett.payload_mappers' => ['amount' => CountingAmountMapper::class]]);
+    $amounts = collect(range(1, 50))->map(fn (int $minorUnits): Amount => new Amount($minorUnits));
+
+    $payload = app(PayloadCodec::class)->encode($amounts);
+
+    expect(CountingAmountMapper::$constructions)->toBe(1)
+        ->and(app(PayloadCodec::class)->decode($payload)->map->minorUnits->all())->toBe(range(1, 50));
+});
+
+it('rejects malformed UTF-8 in model references and enum values at encode time', function (Closure $value) {
+    config(['scarlett.enums' => ['broken' => InvalidUtf8Status::class]]);
+
+    expect(fn () => app(PayloadCodec::class)->encode($value()))->toThrow(InvalidArgumentException::class, 'valid UTF-8');
+})->with([
+    'model reference alias' => [fn () => new ModelReference("\xB1", 1)],
+    'model reference string id' => [fn () => new ModelReference('record', "id-\xB1")],
+    'model reference connection' => [fn () => new ModelReference('record', 1, "db-\xB1")],
+    'enum backing value' => [fn () => InvalidUtf8Status::Broken],
+]);
+
+it('keeps valid model references and enum values encodable', function () {
+    config(['scarlett.enums' => ['status' => StringStatus::class]]);
+    $encoded = app(PayloadCodec::class)->encode([new ModelReference('record', 'id-é', 'db'), StringStatus::Done]);
+
+    expect($encoded['value']['data'][0])->toBe(['type' => 'model', 'alias' => 'record', 'id' => 'id-é', 'connection' => 'db'])
+        ->and($encoded['value']['data'][1])->toBe(['type' => 'enum', 'alias' => 'status', 'data' => 'done']);
+});
+
+it('stores nesting up to the readable JSON depth limit and refuses one level beyond it', function () {
+    $nest = function (int $levels): array {
+        $value = 'leaf';
+        for ($level = 0; $level < $levels; $level++) {
+            $value = [$value];
+        }
+
+        return $value;
+    };
+    $codec = app(PayloadCodec::class);
+    $deepest = $nest(254);
+    $stored = json_encode($codec->encode($deepest), JSON_THROW_ON_ERROR);
+
+    expect($codec->decode(json_decode($stored, true, 512, JSON_THROW_ON_ERROR)))->toBe($deepest)
+        ->and(fn () => $codec->encode($nest(255)))->toThrow(InvalidArgumentException::class, 'nested too deeply');
+});

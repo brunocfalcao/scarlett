@@ -73,31 +73,71 @@ final class Delivery
             return;
         }
         $steps = StepRecord::whereKey($pending->pluck('step_id'))->get()->keyBy('id');
+        /**
+         * Each claim records its own lease expiry. Sent and release clear only that lease, so a
+         * publisher whose lease expired cannot erase the newer lease of a later publisher.
+         */
+        $leases = [];
         $this->publisher->publish(
             $pending,
-            function ($delivery) use ($steps): bool {
+            function ($delivery) use ($steps, &$leases): bool {
                 $step = $steps->get($delivery->step_id);
                 if (! $step || $step->attempt !== $delivery->attempt || $step->state::phase() !== Phase::Queued) {
                     return false;
                 }
+                $lease = now()->addSeconds((int) config('scarlett.delivery_retry_seconds'));
+                $claimed = $this->unclaimed()->where('id', $delivery->id)->whereNull('sent_at')
+                    ->update(['publishing_until' => $lease]) > 0;
+                if ($claimed) {
+                    $leases[$delivery->id] = $lease;
+                }
 
-                return $this->unclaimed()->where('id', $delivery->id)->whereNull('sent_at')
-                    ->update(['publishing_until' => now()->addSeconds((int) config('scarlett.delivery_retry_seconds'))]) > 0;
+                return $claimed;
             },
             function ($delivery) use ($steps): void {
                 $step = $steps->get($delivery->step_id);
                 Bus::dispatch((new ExecuteStep($step->id, $delivery->attempt, $step->executionOptions()['worker_timeout']))
                     ->onConnection($step->connection)->onQueue($step->queue)->delay($step->available_at));
             },
-            fn ($delivery): int => DB::table('scarlett_deliveries')->where('id', $delivery->id)->update(['sent_at' => now(), 'publishing_until' => null, 'updated_at' => now()]),
-            fn ($delivery): int => DB::table('scarlett_deliveries')->where('id', $delivery->id)->update(['publishing_until' => null]),
+            function ($delivery) use (&$leases): int {
+                if (! isset($leases[$delivery->id])) {
+                    return 0;
+                }
+
+                return DB::table('scarlett_deliveries')->where('id', $delivery->id)->where('publishing_until', $leases[$delivery->id])
+                    ->update(['sent_at' => now(), 'publishing_until' => null, 'updated_at' => now()]);
+            },
+            function ($delivery) use (&$leases): int {
+                if (! isset($leases[$delivery->id])) {
+                    return 0;
+                }
+
+                return DB::table('scarlett_deliveries')->where('id', $delivery->id)->where('publishing_until', $leases[$delivery->id])
+                    ->update(['publishing_until' => null]);
+            },
         );
     }
 
+    /**
+     * A sent row becomes replayable only after its retry grace has elapsed from the moment
+     * it was due, so a delayed job is not replayed while it is still waiting to run.
+     */
     public function replayable(StepRecord $step): Builder
     {
-        return $this->unclaimed()->where('step_id', $step->id)->where('attempt', $step->attempt)
-            ->where(fn ($query) => $query->whereNull('sent_at')->orWhere('sent_at', '<=', now()->subSeconds((int) config('scarlett.delivery_retry_seconds'))));
+        return $this->replayableRows()->where('step_id', $step->id)->where('attempt', $step->attempt);
+    }
+
+    /**
+     * Every outbox row that recovery may replay now. Scans use this as a correlated subquery,
+     * so the step and the delivery are judged by the same predicate.
+     */
+    public function replayableRows(): Builder
+    {
+        $cutoff = now()->subSeconds((int) config('scarlett.delivery_retry_seconds'));
+
+        return $this->unclaimed()
+            ->where(fn ($query) => $query->whereNull('sent_at')
+                ->orWhere(fn ($sent) => $sent->where('sent_at', '<=', $cutoff)->where('available_at', '<=', $cutoff)));
     }
 
     private function unclaimed(): Builder

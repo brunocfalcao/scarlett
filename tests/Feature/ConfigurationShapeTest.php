@@ -19,6 +19,7 @@ use Scarlett\Inputs\PayloadCodec;
 use Scarlett\Policies\RateLimit;
 use Scarlett\States\Running;
 use Scarlett\States\StateRegistry;
+use Scarlett\Tests\Fixtures\AliasedState;
 use Scarlett\Tests\Fixtures\Amount;
 use Scarlett\Tests\Fixtures\AmountMapper;
 use Scarlett\Tests\Fixtures\Approved;
@@ -96,5 +97,18 @@ it('accepts associative outer state and transition configuration keys', function
             ->and($registry->transitions())->toContain([Running::class, Approved::class]);
     } finally {
         config($original);
+    }
+});
+
+it('accepts an empty custom state alias because stored rows keep the alias exactly', function () {
+    AliasedState::$name = '';
+
+    try {
+        config(['scarlett.states' => [AliasedState::class]]);
+
+        expect((new StateRegistry)->classes())->toContain(AliasedState::class)
+            ->and(AliasedState::getMorphClass())->toBe('');
+    } finally {
+        AliasedState::$name = null;
     }
 });

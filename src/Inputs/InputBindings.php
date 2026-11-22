@@ -13,6 +13,8 @@ declare(strict_types=1);
 
 namespace Scarlett\Inputs;
 
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Collection;
 use InvalidArgumentException;
 use Scarlett\Models\StepRecord;
 
@@ -51,10 +53,11 @@ final class InputBindings
 
     public function resolve(StepRecord $step): array
     {
+        $sources = $this->resultSources($step);
         $inputs = [];
         foreach ($step->inputs as $name => $binding) {
             $inputs[$name] = match ($binding['kind']) {
-                'result' => $this->result($step, $binding['step']),
+                'result' => $this->result($sources, $binding['step']),
                 'service' => app($binding['class']),
                 'literal' => $this->codec->decode($binding['payload']),
                 default => throw new InvalidArgumentException('Unknown input binding.'),
@@ -64,9 +67,32 @@ final class InputBindings
         return $inputs;
     }
 
-    private function result(StepRecord $step, string $key): mixed
+    /**
+     * Read every prerequisite result this step names in one query. A missing row still
+     * fails at its own binding, with the same exception type as a single-row lookup.
+     *
+     * @return Collection<array-key, StepRecord>
+     */
+    private function resultSources(StepRecord $step): Collection
     {
-        $source = $step->workflow->steps()->where('key', $key)->sole();
+        $keys = array_values(array_unique(array_column(
+            array_filter($step->inputs, fn (array $binding): bool => $binding['kind'] === 'result'),
+            'step',
+        )));
+        if ($keys === []) {
+            return new Collection;
+        }
+
+        return StepRecord::where('workflow_id', $step->workflow_id)
+            ->whereIn('key', $keys)
+            ->get(['key', 'has_result', 'result'])
+            ->keyBy('key');
+    }
+
+    /** @param Collection<array-key, StepRecord> $sources */
+    private function result(Collection $sources, string $key): mixed
+    {
+        $source = $sources->get($key) ?? throw (new ModelNotFoundException)->setModel(StepRecord::class);
         /**
          * A saved null is a legitimate result, so test the explicit has_result flag.
          * Skipped or cancelled steps can have no action result at all; that is different

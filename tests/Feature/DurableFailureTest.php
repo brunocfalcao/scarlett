@@ -11,6 +11,7 @@ declare(strict_types=1);
  * or successful work must not accidentally register terminal failure effects.
  */
 
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -22,6 +23,7 @@ use Scarlett\Engine;
 use Scarlett\Execution\Context;
 use Scarlett\Execution\Decision;
 use Scarlett\Failures\Coordinator;
+use Scarlett\Failures\Delivery;
 use Scarlett\Failures\Runner as FailureRunner;
 use Scarlett\Failures\Status;
 use Scarlett\History;
@@ -288,6 +290,65 @@ it('recovers missing failure delivery without duplicating the durable record', f
     expect($flow->failures()->sole()->id)->toBe($failure->id);
     Queue::assertPushed(ExecuteFailure::class, 2);
     expect(handleFailure($failure->step_id)->status)->toBe(Status::Completed);
+});
+
+it('gives a dispatched failure hook its retry grace from the moment its backoff elapses', function () {
+    config(['scarlett.delivery_retry_seconds' => 30]);
+    $start = now()->startOfSecond();
+    $this->travelTo($start);
+    $flow = failureFlow('fail');
+    runStep($flow->id, 'action');
+    $failure = $flow->failures()->sole();
+    $dueAt = $start->copy()->addMinutes(5);
+    $failure->update(['available_at' => $dueAt, 'sent_at' => $start]);
+    $this->travelTo($dueAt->copy()->addSeconds(29));
+    expect(app(Engine::class)->stalled($flow->id))->toBeFalse();
+    $this->travelTo($dueAt->copy()->addSeconds(30));
+    expect(app(Engine::class)->stalled($flow->id))->toBeTrue();
+    expect(app(Engine::class)->resume($flow->id))->toBe(1);
+    expect($flow->failures()->sole()->id)->toBe($failure->id);
+});
+
+it('keeps a newer publishing lease when a stale failure publisher releases after a failed dispatch', function (bool $newerLease) {
+    $flow = failureFlow('fail');
+    runStep($flow->id, 'action');
+    $failure = $flow->failures()->sole();
+    FailureRecord::whereKey($failure->id)->update(['sent_at' => null]);
+    Bus::shouldReceive('dispatch')->andReturnUsing(function () use ($failure, $newerLease): void {
+        if ($newerLease) {
+            // A second publisher claims the hook after this publisher's lease had expired.
+            FailureRecord::whereKey($failure->id)->update(['publishing_until' => now()->addMinutes(5)]);
+        }
+        throw new RuntimeException('Transport unavailable');
+    });
+    app(Delivery::class)->flush($flow->id);
+    if ($newerLease) {
+        expect($failure->fresh()->publishing_until)->not->toBeNull();
+    } else {
+        expect($failure->fresh()->publishing_until)->toBeNull();
+    }
+    expect($failure->fresh()->sent_at)->toBeNull();
+})->with([
+    'stale release' => true,
+    'healthy release' => false,
+]);
+
+it('writes a retried failure hook in a single update', function () {
+    Queue::fake();
+    $flow = failureFlow('fail', attempts: 3);
+    runStep($flow->id, 'action');
+    $failure = $flow->failures()->sole();
+    $failure->update(['status' => Status::Running, 'lease_until' => now()->subSecond()]);
+    DB::enableQueryLog();
+    DB::flushQueryLog();
+    expect(app(Coordinator::class)->recover($failure->id))->toBeTrue();
+    $writes = collect(DB::getQueryLog())
+        ->filter(fn ($query) => str_starts_with(str_replace('`', '"', $query['query']), 'update "scarlett_failures"'))->count();
+    DB::disableQueryLog();
+    // Retry bookkeeping and the queue hand-off share one update; the other writes are the publication lease and sent mark.
+    expect($failure->fresh()->failures)->toBe(1)
+        ->and($failure->fresh()->status)->toBe(Status::Queued)
+        ->and($writes)->toBe(3);
 });
 
 it('dispatches typed failure handling when result persistence or completion guards reject the outcome', function (string $mode) {

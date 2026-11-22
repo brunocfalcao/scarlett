@@ -27,12 +27,16 @@ use Scarlett\Jobs\ExecuteFailure;
 use Scarlett\Jobs\ExecuteStep;
 use Scarlett\States\Running;
 use Scarlett\States\Skipped;
+use Scarlett\States\StateRegistry;
 use Scarlett\States\WaitingForChildren;
+use Scarlett\Tests\Fixtures\AbstractApprovalState;
 use Scarlett\Tests\Fixtures\AcceptingStep;
+use Scarlett\Tests\Fixtures\AliasedState;
 use Scarlett\Tests\Fixtures\AmountMapper;
 use Scarlett\Tests\Fixtures\Approved;
 use Scarlett\Tests\Fixtures\ApproveStep;
 use Scarlett\Tests\Fixtures\CompletionStep;
+use Scarlett\Tests\Fixtures\CustomAlertTransition;
 use Scarlett\Tests\Fixtures\FailureAwareStep;
 use Scarlett\Tests\Fixtures\GuardedApproval;
 
@@ -205,4 +209,49 @@ it('settles each descendant rescue branch before failing its parent', function (
     runStep($flow->id, 'grandparent-rescue');
     expect($flow->fresh()->status)->toBe('failed')
         ->and(statesOf($flow->id)['after'])->toBe('cancelled');
+});
+
+it('rejects state declarations that cannot be constructed or that break failure semantics', function (string $class, string $message) {
+    config(['scarlett.states' => [$class]]);
+
+    expect(fn () => (new StateRegistry)->classes())->toThrow(InvalidArgumentException::class, $message);
+})->with([
+    'abstract state class' => [AbstractApprovalState::class, 'concrete'],
+]);
+
+it('rejects custom state aliases that the state column cannot store', function (string $alias, string $message) {
+    AliasedState::$name = $alias;
+
+    try {
+        config(['scarlett.states' => [AliasedState::class]]);
+
+        expect(fn () => (new StateRegistry)->classes())->toThrow(InvalidArgumentException::class, $message);
+    } finally {
+        AliasedState::$name = null;
+    }
+})->with([
+    'alias that is not UTF-8' => ["caf\xE9", 'UTF-8'],
+    'alias longer than 255 characters' => [str_repeat('a', 256), '255 characters'],
+]);
+
+it('rejects custom transition classes that cannot be constructed', function () {
+    config(['scarlett.states' => [Approved::class], 'scarlett.transitions' => [[Running::class, Approved::class, CustomAlertTransition::class]]]);
+
+    expect(fn () => (new StateRegistry)->transitions())->toThrow(InvalidArgumentException::class, 'concrete');
+});
+
+it('accepts a skipping settled state and a valid custom state alias at the column limit', function () {
+    config(['scarlett.states' => [Approved::class]]);
+    expect((new StateRegistry)->classes())->toContain(Approved::class, Skipped::class)
+        ->and(Skipped::skipsChildren())->toBeTrue();
+
+    AliasedState::$name = str_repeat('a', 255);
+
+    try {
+        config(['scarlett.states' => [AliasedState::class]]);
+
+        expect((new StateRegistry)->classes())->toContain(AliasedState::class);
+    } finally {
+        AliasedState::$name = null;
+    }
 });

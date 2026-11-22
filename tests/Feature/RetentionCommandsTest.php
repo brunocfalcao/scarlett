@@ -11,11 +11,15 @@ declare(strict_types=1);
  * is a supported explicit age rather than a missing option.
  */
 
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\History;
+use Scarlett\Models\StepRecord;
+use Scarlett\Models\WorkflowRecord;
 use Scarlett\Tests\Fixtures\EchoStep;
 use Scarlett\Tests\Fixtures\FailureAwareStep;
 
@@ -103,3 +107,56 @@ it('rejects invalid retention options before changing history', function (string
     'zero batch' => [['--days' => '1', '--batch' => '0']],
     'invalid batch' => [['--days' => '1', '--batch' => 'many']],
 ]);
+
+it('retries retention transactions after a transient concurrency error within the configured attempts', function (string $operation, bool $inject) {
+    $engine = app(Engine::class);
+    $history = app(History::class);
+    $flow = $engine->start(new Workflow([new Node('old', EchoStep::class)]));
+    if ($operation === 'purge') {
+        $history->archive($flow->id);
+    }
+    $injected = false;
+    if ($inject) {
+        DB::beforeExecuting(function (string $sql) use (&$injected): void {
+            if (! $injected && str_contains(str_replace('`', '"', $sql), 'from "scarlett_workflows" where "scarlett_workflows"."id" = ?')) {
+                $injected = true;
+                throw new RuntimeException('database is locked');
+            }
+        });
+    }
+    $result = match ($operation) {
+        'archive' => $history->archive($flow->id),
+        'archive before' => $history->archiveBefore(now()->addMinute(), 1),
+        'purge' => $history->purge(now()->addDay(), 1),
+        'delete' => $history->delete($flow->id),
+    };
+    expect($injected)->toBe($inject)
+        ->and($result)->toBe($operation === 'archive before' || $operation === 'purge' ? 1 : true);
+})->with(collect(['archive', 'archive before', 'purge', 'delete'])->crossJoin([true, false])->all());
+
+it('reads only the retention columns it decides on and removes large step sets in bounded chunks', function () {
+    $engine = app(Engine::class);
+    $history = app(History::class);
+    $done = $engine->start(new Workflow([new Node('old', EchoStep::class)]));
+    Queue::fake();
+    $statements = [];
+    DB::listen(function (QueryExecuted $query) use (&$statements): void {
+        $statements[] = ['sql' => str_replace('`', '"', $query->sql), 'bindings' => count($query->bindings)];
+    });
+    expect($history->archive($done->id))->toBeTrue();
+    $stepReads = collect($statements)->pluck('sql')->filter(fn (string $sql): bool => str_contains($sql, 'from "scarlett_steps"'));
+    expect($stepReads)->not->toBeEmpty()->each->toStartWith('select "id", "state" from "scarlett_steps"');
+    $statements = [];
+    expect($history->purge(now()->addDay(), 1))->toBe(1);
+    $candidateReads = collect($statements)->pluck('sql')->filter(fn (string $sql): bool => str_contains($sql, 'from "scarlett_workflows" where "archived_at" <'));
+    expect($candidateReads)->not->toBeEmpty()->each->toStartWith('select "id" from "scarlett_workflows"');
+    $wide = $engine->start(new Workflow(array_map(fn (int $index): Node => new Node("step-{$index}", EchoStep::class), range(1, 501))));
+    $statements = [];
+    expect($history->delete($wide->id, includingRunning: true))->toBeTrue();
+    foreach (['scarlett_history', 'scarlett_deliveries'] as $table) {
+        $bindings = collect($statements)->filter(fn (array $statement): bool => str_starts_with($statement['sql'], "delete from \"{$table}\""))->pluck('bindings')->all();
+        expect($bindings)->toBe([500, 1]);
+    }
+    expect(WorkflowRecord::whereKey($wide->id)->exists())->toBeFalse()
+        ->and(StepRecord::where('workflow_id', $wide->id)->exists())->toBeFalse();
+});

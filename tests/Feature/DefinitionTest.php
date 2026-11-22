@@ -59,6 +59,38 @@ it('rejects invalid UTF-8 and oversized bounded workflow strings before admissio
         ->toThrow(InvalidArgumentException::class, 'UTF-8');
 });
 
+it('rejects empty routing names and unencodable metadata before admission', function (Workflow $definition, string $message) {
+    expect(fn () => $definition->validate())->toThrow(InvalidArgumentException::class, $message);
+})->with([
+    'empty queue' => [new Workflow([new Node('valid', EchoStep::class, queue: '')]), 'queue must not be empty'],
+    'empty connection' => [new Workflow([new Node('valid', EchoStep::class, connection: '')]), 'connection must not be empty'],
+    'invalid UTF-8 metadata' => [new Workflow([new Node('valid', EchoStep::class)], metadata: ['bad' => "\xFF"]), 'cannot be encoded as JSON'],
+    'non-finite metadata number' => [new Workflow([new Node('valid', EchoStep::class)], metadata: ['bad' => NAN]), 'cannot be encoded as JSON'],
+]);
+
+it('rejects self-containing metadata as an invalid definition', function () {
+    $metadata = [];
+    $metadata[] = &$metadata;
+
+    expect(fn () => (new Workflow([new Node('valid', EchoStep::class)], metadata: $metadata))->validate())
+        ->toThrow(InvalidArgumentException::class, 'cannot be encoded as JSON');
+});
+
+it('accepts a one-character queue and connection and JSON-safe metadata', function () {
+    (new Workflow([new Node('valid', EchoStep::class, queue: 'q', connection: 'c')], metadata: ['note' => 'café', 'count' => 2]))->validate();
+
+    expect(true)->toBeTrue();
+});
+
+it('reports the first invalid part of a definition in its documented order', function (Workflow $definition, string $message) {
+    expect(fn () => $definition->validate())->toThrow(InvalidArgumentException::class, $message);
+})->with([
+    'subject pair before invalid node' => [new Workflow([new Node('valid', stdClass::class)], subjectType: 'order'), 'requires both its type and its identifier'],
+    'subject text before metadata' => [new Workflow([new Node('valid', EchoStep::class)], subjectType: "\xFF", subjectId: '1', metadata: ['bad' => NAN]), 'subject type must be valid UTF-8'],
+    'metadata before node identity' => [new Workflow([new Node('', EchoStep::class)], metadata: ['bad' => NAN]), 'cannot be encoded as JSON'],
+    'node before ancestry' => [new Workflow([new Node('a', EchoStep::class, parent: 'missing'), new Node('a', EchoStep::class)]), 'Duplicate step identity'],
+]);
+
 it('rejects incompatible literal constructor types before constructing any step', function () {
     ControlledStep::$constructed = [];
     expect(fn () => app(Engine::class)->start(new Workflow([
@@ -102,3 +134,54 @@ class CompatibleInputNameStep extends Step
         return 'shared';
     }
 }
+
+it('validates long ancestry chains and still rejects a cycle reached after acyclic siblings were verified', function () {
+    $chain = [new Node('n0', EchoStep::class)];
+    for ($index = 1; $index < 400; $index++) {
+        $chain[] = new Node("n$index", EchoStep::class, parent: 'n'.($index - 1));
+    }
+    $chain[] = new Node('sibling', EchoStep::class, parent: 'n399');
+
+    expect(fn () => (new Workflow($chain))->validate())->not->toThrow(InvalidArgumentException::class);
+
+    $cycle = [
+        new Node('root', EchoStep::class),
+        new Node('ok', EchoStep::class, parent: 'root'),
+        new Node('loop-a', EchoStep::class, parent: 'loop-b'),
+        new Node('loop-b', EchoStep::class, parent: 'loop-a'),
+        new Node('enters', EchoStep::class, parent: 'loop-a'),
+    ];
+
+    expect(fn () => (new Workflow($cycle))->validate())->toThrow(InvalidArgumentException::class, 'Cycle in workflow ancestry.');
+});
+
+it('stores the earlier-stage sibling prerequisites of fanouts, child groups and rescue groups', function () {
+    $nodes = [];
+    foreach (range(0, 5) as $index) {
+        $nodes[] = new Node("fan$index", EchoStep::class);
+    }
+    $nodes[] = new Node('join', EchoStep::class, stage: 1);
+    $nodes[] = new Node('after', EchoStep::class, stage: 2);
+    $nodes[] = new Node('child-a', EchoStep::class, parent: 'fan0');
+    $nodes[] = new Node('child-b', EchoStep::class, stage: 1, parent: 'fan0');
+    $nodes[] = new Node('other-child', EchoStep::class, stage: 1, parent: 'fan1');
+    $nodes[] = new Node('rescue', EchoStep::class, rescues: 'join');
+    $nodes[] = new Node('rescue-late', EchoStep::class, stage: 1, rescues: 'join');
+
+    $workflow = app(Engine::class)->start(new Workflow($nodes));
+    $stored = $workflow->steps()->get()->mapWithKeys(fn ($step): array => [$step->key => $step->dependencies])->all();
+    ksort($stored);
+    $fan = ['fan0', 'fan1', 'fan2', 'fan3', 'fan4', 'fan5'];
+    $expected = array_fill_keys($fan, []) + [
+        'join' => $fan,
+        'after' => [...$fan, 'join'],
+        'child-a' => [],
+        'child-b' => ['child-a'],
+        'other-child' => [],
+        'rescue' => [],
+        'rescue-late' => ['rescue'],
+    ];
+    ksort($expected);
+
+    expect($stored)->toBe($expected);
+});

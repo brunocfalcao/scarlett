@@ -1,6 +1,37 @@
-# Current state — 2026-11-17
+# Current state — 2026-11-23
 
-## v2.3.4 contributor documentation — 2026-11-17
+## v2.4.0 hardening — 2026-11-23
+
+Complete release from v2.3.4 (`6990a8ba03c811b89c38accb4a979e6a1ec92b42`), including
+every eligible package path: 24 source files, the TIA runner, 20 test files (19 suites
+and the shared helpers) and 8 new fixtures, plus documentation. No migration,
+configuration key, dependency or workflow signature changed; all eleven published
+migrations keep their bytes.
+
+Changed behaviour: definition, configuration and admission refusals before work is
+saved; payload UTF-8 and 254-level depth limits, including model and enum fields;
+wrong-typed stored payload fields raising `InvalidArgumentException`; per-claim
+publishing leases with replay grace from the later of send and due time; SQL
+step-recovery candidates; `scarlett.transaction_attempts` for starting a cooldown and
+for history archive, delete and purge; chunked history and delivery deletes; MariaDB
+connection release; optional `Throttled` code and previous; runner result-persistence
+and rejected-plan causes; the verification retry budget after a saved action; and
+integer step priority. Missing prerequisite results and the 255-character replacement
+subject check behave as in v2.3.4 and are now documented.
+
+Fresh release verification on PHP 8.5.12: full gate `./run-pest-tia.sh --fresh` 670
+tests / 5561 assertions; whole suite per CI database with `SCARLETT_TEST_DRIVER`:
+SQLite 670 / 5553, MySQL 670 / 5560, PostgreSQL 670 / 5558. The first database runs
+found two SQLite-only trigger fixtures and eight SQL matchers that never matched
+MySQL's backtick quoting; both now run on every driver. Reference host 64 tests / 452
+assertions against the exact package source. Package Pint and strict Composer
+validation pass.
+
+Source publication and exact-SHA CI are verified separately by the preparation
+workflow before handoff. No consumer update, migration, deployment or
+package-registry submission is part of this release.
+
+## v2.3.4 contributor documentation — 2026-11-17 (published baseline)
 
 Complete documentation candidate from v2.3.3
 (`9f04760958d9f74f987ae1925e4b344f93976bd9`). Every eligible package change is

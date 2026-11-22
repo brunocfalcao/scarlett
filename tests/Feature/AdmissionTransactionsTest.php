@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Scarlett\Admission;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Subject;
 use Scarlett\Definition\SubjectSlot;
@@ -139,3 +140,18 @@ it('fails closed when the admission control row is missing', function (string $o
         ->and(WorkflowRecord::forSubject('subject', $subject)->pluck('id')->all())->toBe([$flow->id]);
     Queue::assertNothingPushed();
 })->with(['start', 'replace', 'withAdmission', 'deleteSubject', 'cooldown', 'reopen']);
+
+it('retries cooldown after a transient concurrency error within the configured attempts', function (bool $inject) {
+    $injected = false;
+    if ($inject) {
+        DB::beforeExecuting(function (string $sql) use (&$injected): void {
+            if (! $injected && str_contains(str_replace('`', '"', $sql), '"scarlett_control"')) {
+                $injected = true;
+                throw new RuntimeException('database is locked');
+            }
+        });
+    }
+    app(Admission::class)->cooldown();
+    expect($injected)->toBe($inject)
+        ->and((bool) DB::table('scarlett_control')->where('id', 'admission')->value('cooldown'))->toBeTrue();
+})->with([true, false]);

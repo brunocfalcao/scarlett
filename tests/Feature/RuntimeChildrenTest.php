@@ -11,6 +11,7 @@ declare(strict_types=1);
  * must leave the owner unchanged; rollback must remove the entire handoff together.
  */
 
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
@@ -18,6 +19,7 @@ use Scarlett\Definition\ExecutionOptions;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
+use Scarlett\Execution\ChildPhase;
 use Scarlett\Execution\Decision;
 use Scarlett\Execution\Runner;
 use Scarlett\Inputs\FromResult;
@@ -29,6 +31,8 @@ use Scarlett\Tests\Fixtures\Approved;
 use Scarlett\Tests\Fixtures\ControlledStep;
 use Scarlett\Tests\Fixtures\FailureAwareStep;
 use Scarlett\Tests\Fixtures\GuardedApproval;
+use Scarlett\Tests\Fixtures\HandlerChildPlanStep;
+use Scarlett\Tests\Fixtures\InvalidChildPlanStep;
 use Scarlett\Tests\Fixtures\RuntimeParent;
 
 beforeEach(function () {
@@ -141,6 +145,73 @@ it('rolls back invalid child plans without changing the running parent', functio
     expect((string) $parent->fresh()->state)->toBe('running');
     expect($parent->fresh()->action_completed)->toBeFalse();
 })->with(['duplicate', 'external', 'cycle', 'long', 'literal', 'source']);
+
+it('settles a rejected handle() child plan once without replaying the action or its classifier', function () {
+    InvalidChildPlanStep::$actions = 0;
+    InvalidChildPlanStep::$exceptions = 0;
+    $flow = app(Engine::class)->start(new Workflow([new Node('parent', InvalidChildPlanStep::class, inputs: ['mode' => 'invalid'])]));
+    runStep($flow->id, 'parent');
+    $parent = $flow->steps()->where('key', 'parent')->sole()->fresh();
+    expect(InvalidChildPlanStep::$actions)->toBe(1);
+    expect(InvalidChildPlanStep::$exceptions)->toBe(0);
+    expect((string) $parent->state)->toBe('failed');
+    expect($parent->error)->toBe('Duplicate step identity: same');
+    expect($flow->steps()->count())->toBe(1);
+});
+
+it('hands off a valid handle() child plan once and waits for its child', function () {
+    InvalidChildPlanStep::$actions = 0;
+    InvalidChildPlanStep::$exceptions = 0;
+    $flow = app(Engine::class)->start(new Workflow([new Node('parent', InvalidChildPlanStep::class, inputs: ['mode' => 'valid'])]));
+    runStep($flow->id, 'parent');
+    $parent = $flow->steps()->where('key', 'parent')->sole()->fresh();
+    expect(InvalidChildPlanStep::$actions)->toBe(1);
+    expect(InvalidChildPlanStep::$exceptions)->toBe(0);
+    expect((string) $parent->state)->toBe('waitingforchildren');
+    expect($flow->steps()->count())->toBe(2);
+});
+
+it('settles a child handoff that cannot be saved as a result persistence failure', function () {
+    InvalidChildPlanStep::$actions = 0;
+    InvalidChildPlanStep::$exceptions = 0;
+    $flow = app(Engine::class)->start(new Workflow([new Node('parent', InvalidChildPlanStep::class, inputs: ['mode' => 'valid'])]));
+    blockHistoryInsert('block_handoff', 'waitingforchildren', 'handoff blocked');
+    runStep($flow->id, 'parent');
+    $parent = $flow->steps()->where('key', 'parent')->sole()->fresh();
+    expect(InvalidChildPlanStep::$actions)->toBe(1);
+    expect(InvalidChildPlanStep::$exceptions)->toBe(0);
+    expect((string) $parent->state)->toBe('failed');
+    expect($parent->error)->toContain('handoff blocked');
+    expect($flow->steps()->count())->toBe(1);
+    expect(DB::table('scarlett_history')->where('step_id', $parent->id)->where('to_state', 'failed')->count())->toBe(1);
+});
+
+it('records a rejected exception handler child plan as a handler crash without replaying the action', function () {
+    HandlerChildPlanStep::$actions = 0;
+    HandlerChildPlanStep::$exceptions = 0;
+    $flow = app(Engine::class)->start(new Workflow([new Node('parent', HandlerChildPlanStep::class)]));
+    runStep($flow->id, 'parent');
+    $parent = $flow->steps()->where('key', 'parent')->sole()->fresh();
+    expect(HandlerChildPlanStep::$actions)->toBe(1);
+    expect(HandlerChildPlanStep::$exceptions)->toBe(1);
+    expect((string) $parent->state)->toBe('failed');
+    expect($parent->error)->toBe('Duplicate step identity: same');
+    expect($flow->steps()->count())->toBe(1);
+    expect($flow->failures()->sole()->cause->value)->toBe('handler_crashed');
+});
+
+it('leaves a database error during throttling to lease recovery instead of the action classifier', function () {
+    InvalidChildPlanStep::$actions = 0;
+    InvalidChildPlanStep::$exceptions = 0;
+    $flow = app(Engine::class)->start(new Workflow([new Node('parent', InvalidChildPlanStep::class, inputs: ['mode' => 'throttle'])]));
+    blockHistoryInsert('block_requeue', 'queued', 'requeue blocked');
+    $parent = $flow->steps()->where('key', 'parent')->sole();
+    expect(fn () => runStep($flow->id, 'parent'))->toThrow(QueryException::class, 'requeue blocked');
+    expect(InvalidChildPlanStep::$actions)->toBe(0);
+    expect(InvalidChildPlanStep::$exceptions)->toBe(0);
+    expect((string) $parent->fresh()->state)->toBe('running');
+    expect($parent->fresh()->action_completed)->toBeFalse();
+});
 
 it('rejects a second plan on predefined children and during verification', function (bool $predefined) {
     $engine = app(Engine::class);
@@ -358,3 +429,19 @@ it('applies configured completion guards after runtime children and parent verif
     expect((string) $parent->fresh()->state)->toBe($allowed ? 'approved' : 'failed');
     expect((string) $flow->steps()->where('key', 'after')->sole()->state)->toBe($allowed ? 'queued' : 'cancelled');
 })->with([true, false]);
+
+it('hands a finished runtime child result to parent verification with one parent step update', function () {
+    $flow = app(Engine::class)->start(new Workflow([new Node('original', RuntimeParent::class, inputs: ['depth' => 1, 'entry' => 'handle', 'value' => 'backup result'])]));
+    runStep($flow->id, 'original');
+    $original = $flow->steps()->where('key', 'original')->sole();
+    $child = $flow->steps()->where('parent_key', 'original')->sole();
+    DB::enableQueryLog();
+    DB::flushQueryLog();
+    runStep($flow->id, $child->key);
+    $stepWrites = collect(DB::getQueryLog())
+        ->filter(fn ($query) => str_starts_with(str_replace('`', '"', $query['query']), 'update "scarlett_steps"'))->count();
+    DB::disableQueryLog();
+    expect((string) $original->fresh()->state)->toBe('queued')
+        ->and($original->fresh()->child_phase)->toBe(ChildPhase::Verifying)
+        ->and($stepWrites)->toBe(11);
+});

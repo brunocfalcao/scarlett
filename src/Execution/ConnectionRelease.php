@@ -70,9 +70,14 @@ final class ConnectionRelease
         return true;
     }
 
+    /**
+     * Only the drivers this package runs against are released; other drivers stay connected.
+     * A persistent PDO handle stays in PHP's connection pool after disconnect(), so releasing
+     * it would free nothing and is skipped.
+     */
     private function canReconnect(Connection $connection): bool
     {
-        if (! in_array($connection->getDriverName(), ['sqlite', 'mysql', 'pgsql'], true)
+        if (! in_array($connection->getDriverName(), ['sqlite', 'mysql', 'mariadb', 'pgsql'], true)
             || ($connection->getConfig('options')[PDO::ATTR_PERSISTENT] ?? false)) {
             return false;
         }

@@ -29,16 +29,29 @@ final class RateLimit extends Throttle
 
     public function __construct(public readonly string $name, public readonly string $key)
     {
+        if (! mb_check_encoding($name, 'UTF-8') || ! mb_check_encoding($key, 'UTF-8')) {
+            throw new InvalidArgumentException('A named throttle requires valid UTF-8 names and sharing keys.');
+        }
         $policies = config('scarlett.throttles', []);
         $policy = is_array($policies) ? ($policies[$name] ?? null) : null;
-        if ($name === '' || $key === '' || ! is_array($policy)
-            || ! is_int($policy['max_requests'] ?? null) || $policy['max_requests'] < 1
-            || ! is_int($policy['per_seconds'] ?? null) || $policy['per_seconds'] < 1
-            || $policy['per_seconds'] > intdiv(PHP_INT_MAX - now()->getTimestampMs(), ThrottleReservations::MILLISECONDS_PER_SECOND)) {
+        if ($name === '' || $key === '' || ! self::isValidPolicy($policy)) {
             throw new InvalidArgumentException('A named throttle requires a non-empty sharing key, positive integer max_requests and representable positive per_seconds.');
         }
         $this->maxRequests = $policy['max_requests'];
         $this->perSeconds = $policy['per_seconds'];
+    }
+
+    /**
+     * Shared by construction and Configuration::validate(), so both accept exactly the same
+     * policy shapes. The per_seconds ceiling keeps the window in milliseconds representable
+     * when the quota is later checked; ThrottleReservations rechecks it at that time.
+     */
+    public static function isValidPolicy(mixed $policy): bool
+    {
+        return is_array($policy)
+            && is_int($policy['max_requests'] ?? null) && $policy['max_requests'] >= 1
+            && is_int($policy['per_seconds'] ?? null) && $policy['per_seconds'] >= 1
+            && $policy['per_seconds'] <= intdiv(PHP_INT_MAX - now()->getTimestampMs(), ThrottleReservations::MILLISECONDS_PER_SECOND);
     }
 
     /** Exact hashed identity avoids collation ambiguity and storing account identifiers. */

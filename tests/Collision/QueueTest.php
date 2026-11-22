@@ -129,7 +129,8 @@ it('fails unexpected transport errors without a cache and retains recoverable en
     $worker->mustRun();
     expect(DB::table('jobs')->where('payload', 'like', '%'.$step->id.'%')->exists())->toBeFalse();
     expect(statesOf($flow->id))->toBe(['recoverable' => 'queued'])->and($step->fresh()->failures)->toBe(0);
-    DB::table('scarlett_deliveries')->where('step_id', $step->id)->update(['sent_at' => now()->subSeconds(config('scarlett.delivery_retry_seconds'))]);
+    // BUG-003: replay grace now runs from the delivery's due time, so backdate available_at as well as sent_at.
+    DB::table('scarlett_deliveries')->where('step_id', $step->id)->update(['sent_at' => now()->subSeconds(config('scarlett.delivery_retry_seconds')), 'available_at' => now()->subSeconds(config('scarlett.delivery_retry_seconds'))]);
     app(Engine::class)->resume($flow->id);
     $healthy = new Process([PHP_BINARY, __DIR__.'/queue-worker.php']);
     $healthy->setTimeout(20);

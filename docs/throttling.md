@@ -20,7 +20,8 @@ Add policies to your application's `config/scarlett.php`:
 Both settings must be positive integers, and `per_seconds` must fit the
 millisecond timestamp storage range at validation time. A missing or malformed
 policy throws; it never silently becomes unlimited. Policy names are exact,
-including case.
+including case, and must be valid UTF-8. `RateLimit` refuses a name or sharing key
+that is not valid UTF-8 when the policy is constructed.
 The empty package configuration imposes no limit on existing steps.
 
 A quota of 20 per 60 seconds permits an initial burst of 20. Use one admission
@@ -113,6 +114,8 @@ the named quota or impose a provider-wide cooldown on other workflows.
 An explicit `Decision::throttle()` or `Throttled`
 exception retains its existing **budget-free** deferral meaning. Do not use that
 path when you intend an error to count toward bounded retries.
+
+`Throttled` accepts optional `code` and `previous` arguments, as `RuntimeException` does.
 
 An admission is charged when permission is granted, not when the API succeeds.
 There is no refund after a skip, cancellation, failure or worker crash: Scarlett

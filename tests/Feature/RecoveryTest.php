@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Admission;
+use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\Execution\Decision;
@@ -87,6 +88,26 @@ it('replays an unsent delivery without claiming a healthy running step', functio
     expect(DB::table('scarlett_deliveries')->where('step_id', $queued->id)->value('sent_at'))->toBe(now()->toDateTimeString());
 });
 
+it('gives a dispatched delivery its retry grace from the moment it becomes due', function (int $secondsUntilDue) {
+    config(['scarlett.delivery_retry_seconds' => 30]);
+    $start = now()->startOfSecond();
+    $this->travelTo($start);
+    $node = $secondsUntilDue > 0
+        ? new Node('a', ControlledStep::class, inputs: ['name' => 'a'], notBefore: $start->copy()->addSeconds($secondsUntilDue))
+        : controlled('a');
+    $flow = app(Engine::class)->start(new Workflow([$node]));
+    $dueAt = $start->copy()->addSeconds($secondsUntilDue);
+    expect(DB::table('scarlett_deliveries')->where('step_id', $flow->steps()->sole()->id)->value('sent_at'))->not->toBeNull();
+    $this->travelTo($dueAt->copy()->addSeconds(29));
+    expect(app(Recovery::class)->stalled($flow->id))->toBeFalse();
+    $this->travelTo($dueAt->copy()->addSeconds(30));
+    expect(app(Recovery::class)->stalled($flow->id))->toBeTrue();
+    expect(app(Recovery::class)->resume($flow->id))->toBe(1);
+})->with([
+    'delayed start' => 300,
+    'immediate start' => 0,
+]);
+
 it('does not replay a queued step without an eligible delivery', function (string $condition) {
     $flow = app(Engine::class)->start(new Workflow([controlled('queued')]));
     $step = $flow->steps()->sole();
@@ -130,6 +151,29 @@ it('keeps the next delivery durable when transport fails after an outcome commit
     expect(DB::table('scarlett_deliveries')->where('step_id', $next->id)->value('sent_at'))->toBeNull();
     expect($engine->stalled($flow->id))->toBeTrue();
 });
+it('keeps a newer publishing lease when a stale publisher releases after a failed dispatch', function (bool $newerLease) {
+    $flow = app(Engine::class)->start(new Workflow([controlled('a')]));
+    $delivery = DB::table('scarlett_deliveries')->where('step_id', $flow->steps()->sole()->id);
+    $delivery->update(['sent_at' => null]);
+    Bus::shouldReceive('dispatch')->andReturnUsing(function () use ($delivery, $newerLease): void {
+        if ($newerLease) {
+            // A second publisher claims the row after this publisher's lease had expired.
+            $delivery->update(['publishing_until' => now()->addMinutes(5)]);
+        }
+        throw new RuntimeException('Transport unavailable');
+    });
+    app(Delivery::class)->flush($flow->id);
+    if ($newerLease) {
+        expect($delivery->value('publishing_until'))->not->toBeNull();
+    } else {
+        expect($delivery->value('publishing_until'))->toBeNull();
+    }
+    expect($delivery->value('sent_at'))->toBeNull();
+})->with([
+    'stale release' => true,
+    'healthy release' => false,
+]);
+
 it('does not publish the same delivery twice during overlapping flushes', function () {
     $flow = app(Engine::class)->start(new Workflow([controlled('a')]));
     DB::table('scarlett_deliveries')->where('step_id', $flow->steps()->sole()->id)->update(['sent_at' => null]);

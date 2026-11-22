@@ -67,28 +67,14 @@ final class Progression
                      */
                     if ($this->hasFailedChild($step, $childrenByParent)) {
                         // Failure closes ordinary admission while running children and their recovery drain.
-                        foreach ($children as $child) {
-                            if (in_array($child->state::phase(), [Phase::Pending, Phase::Queued], true)) {
-                                $this->journal->transition($child, Cancelled::class, 'A sibling failed.');
-                                $changed = true;
-                            }
-                        }
-                        if ($children->every(fn (StepRecord $child): bool => $this->branchSettled($child, $branchesByOwner))) {
-                            $this->journal->transition($step, Failed::class, 'A child failed.', FailureCause::ChildFailed);
+                        if ($this->drainChildren($step, $children, $branchesByOwner, 'A sibling failed.', Failed::class, 'A child failed.', FailureCause::ChildFailed)) {
                             $changed = true;
                         }
 
                         continue;
                     }
                     if ($children->contains(fn ($child): bool => $child->state::phase() === Phase::Settled && ! $child->state::satisfiesDependency())) {
-                        foreach ($children as $child) {
-                            if (in_array($child->state::phase(), [Phase::Pending, Phase::Queued], true)) {
-                                $this->journal->transition($child, Cancelled::class, 'A sibling was cancelled.');
-                                $changed = true;
-                            }
-                        }
-                        if ($children->every(fn (StepRecord $child): bool => $this->branchSettled($child, $branchesByOwner))) {
-                            $this->journal->transition($step, Cancelled::class, 'A child was cancelled.');
+                        if ($this->drainChildren($step, $children, $branchesByOwner, 'A sibling was cancelled.', Cancelled::class, 'A child was cancelled.')) {
                             $changed = true;
                         }
 
@@ -166,8 +152,8 @@ final class Progression
                 $changed = true;
             }
         } while ($changed);
-        app(Coordinator::class)->advance($workflow, $steps);
-        $this->aggregate($workflow, $steps);
+        $hooksUnfinished = app(Coordinator::class)->advance($workflow, $steps);
+        $this->aggregate($workflow, $steps, $hooksUnfinished);
     }
 
     /** Runtime parents verify the effective result after their child plan settles. */
@@ -198,8 +184,8 @@ final class Progression
             $step->result = $source->result;
             $step->has_result = true;
         }
+        // enqueue() saves this phase together with the new attempt, in one update.
         $step->child_phase = ChildPhase::Verifying;
-        $step->save();
         $this->enqueue($step);
     }
 
@@ -221,14 +207,36 @@ final class Progression
             );
     }
 
-    private function aggregate(WorkflowRecord $workflow, Collection $steps): void
+    /**
+     * Cancels children that have not started, then concludes the waiting parent once every
+     * branch under it has drained. Returns whether any state changed in this call.
+     */
+    private function drainChildren(StepRecord $step, Collection $children, Collection $branchesByOwner, string $siblingReason, string $parentState, string $parentReason, FailureCause $cause = FailureCause::Decided): bool
+    {
+        $changed = false;
+        foreach ($children as $child) {
+            if (in_array($child->state::phase(), [Phase::Pending, Phase::Queued], true)) {
+                $this->journal->transition($child, Cancelled::class, $siblingReason);
+                $changed = true;
+            }
+        }
+        if ($children->every(fn (StepRecord $child): bool => $this->branchSettled($child, $branchesByOwner))) {
+            $this->journal->transition($step, $parentState, $parentReason, $cause);
+            $changed = true;
+        }
+
+        return $changed;
+    }
+
+    private function aggregate(WorkflowRecord $workflow, Collection $steps, bool $hooksUnfinished): void
     {
         /**
          * The workflow is finished only when every step and durable failure hook is done.
          * A rescue succeeding does not erase its owner's failure; aggregate status must
-         * still describe that original outcome.
+         * still describe that original outcome. The hook outcome comes from the advance pass,
+         * which has already locked those rows in this transaction.
          */
-        if ($steps->every(fn ($step): bool => $step->state::phase() === Phase::Settled) && $workflow->failures()->unfinished()->lockForUpdate()->first() === null) {
+        if ($steps->every(fn ($step): bool => $step->state::phase() === Phase::Settled) && ! $hooksUnfinished) {
             $failed = $steps->contains(fn ($step): bool => $step->state::activatesRecovery());
             // Unused recovery nodes do not make a successful workflow cancelled.
             $cancelled = $steps->contains(fn ($step): bool => $step->rescues_key === null && ! $step->state::satisfiesDependency());

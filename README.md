@@ -24,6 +24,9 @@ flowchart LR
     Slug --> Result["hello-laravel"]
 ```
 
+Version 2.4.0 hardens validation, payload limits, delivery replay, recovery scans
+and runner error boundaries. It adds no migration or configuration change; see the
+[migration guide](migration-from-step-dispatcher.md#v240-hardening).
 Version 2.3.4 explains the package internals for new contributors, with no runtime
 or schema change. Start with the [contributor architecture](docs/architecture.md).
 Version 2.3.3 corrects PostgreSQL regression coverage for the 2.3.2 hardening.

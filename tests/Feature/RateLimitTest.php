@@ -20,6 +20,7 @@ use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
 use Scarlett\Execution\Context;
 use Scarlett\Execution\Decision;
+use Scarlett\Execution\ThrottleReservations;
 use Scarlett\Models\StepRecord;
 use Scarlett\Models\WorkflowRecord;
 use Scarlett\Policies\RateLimit;
@@ -176,6 +177,43 @@ it('rejects malformed named policies instead of silently running unthrottled', f
     expect(fn () => new RateLimit('bad', 'account'))->toThrow(InvalidArgumentException::class);
 })->with(array_map(fn ($definition) => [$definition], [null, [], ['max_requests' => 0, 'per_seconds' => 60], ['max_requests' => 1, 'per_seconds' => 0], ['max_requests' => '1', 'per_seconds' => 10], ['max_requests' => 1, 'per_seconds' => -1], ['max_requests' => 1, 'per_seconds' => 1.5]]));
 
+it('rejects a policy name or sharing key that is not valid UTF-8 before any quota is touched', function (string $name, string $key) {
+    config(['scarlett.throttles' => [$name => ['max_requests' => 1, 'per_seconds' => 60]]]);
+
+    expect(fn () => new RateLimit($name, $key))->toThrow(InvalidArgumentException::class, 'valid UTF-8');
+})->with([
+    'invalid policy name' => ["caf\xE9", 'account'],
+    'invalid sharing key' => ['slow', "\xFF"],
+]);
+
+it('keeps a valid UTF-8 sharing key usable as a quota identity', function () {
+    config(['scarlett.throttles' => ['slow' => ['max_requests' => 1, 'per_seconds' => 60]]]);
+
+    $policy = new RateLimit('slow', 'café 名前');
+
+    expect($policy->id())->toHaveLength(64)
+        ->and($policy->delay(runningLimitContext(limitedWorkflow('slow', 'café 名前'))))->toBeNull();
+});
+
+it('refuses a window that stops being representable after the policy was accepted', function () {
+    $boundary = intdiv(PHP_INT_MAX - now()->getTimestampMs(), ThrottleReservations::MILLISECONDS_PER_SECOND);
+    config(['scarlett.throttles.slow.per_seconds' => $boundary]);
+    $policy = new RateLimit('slow', 'account');
+    $context = runningLimitContext(limitedWorkflow());
+    $this->travel(1)->seconds();
+
+    expect(fn () => $policy->delay($context))
+        ->toThrow(InvalidArgumentException::class, 'representable');
+});
+
+it('accepts a window that is representable when the quota is checked', function () {
+    config(['scarlett.throttles.slow.per_seconds' => 60]);
+    $policy = new RateLimit('slow', 'account');
+    $this->travel(1)->seconds();
+
+    expect($policy->delay(runningLimitContext(limitedWorkflow())))->toBeNull();
+});
+
 it('rolls quota and receipt back together without disturbing another policy', function () {
     $first = runningLimitContext(limitedWorkflow());
     $other = new RateLimit('fast', 'account');
@@ -243,6 +281,25 @@ it('prunes only expired identities with bounded batches and rejects invalid opti
     $this->artisan('scarlett:prune-throttles', ['--batch' => 1])->assertExitCode(0);
     expect(DB::table('scarlett_throttles')->where('id', $fast->id())->exists())->toBeFalse()
         ->and(DB::table('scarlett_throttles')->where('id', $slow->id())->sole())->toEqual($snapshot);
+});
+
+it('deletes expired throttle buckets one batch per statement and never removes a renewed bucket', function () {
+    $expired = [];
+    for ($index = 0; $index < 250; $index++) {
+        $expired[] = ['id' => 'expired-'.$index, 'grants' => '[]', 'expires_at' => 0, 'max_requests' => 1, 'per_seconds' => 60];
+    }
+    DB::table('scarlett_throttles')->insert($expired);
+    DB::table('scarlett_throttles')->insert(['id' => 'renewed', 'grants' => '[]', 'expires_at' => now()->getTimestampMs() + 60000, 'max_requests' => 1, 'per_seconds' => 60]);
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+
+    $removed = app(ThrottleReservations::class)->pruneExpired(100);
+    $deletes = collect(DB::getQueryLog())->filter(fn (array $query): bool => str_starts_with(strtolower($query['query']), 'delete'))->count();
+    DB::disableQueryLog();
+
+    expect($removed)->toBe(250)
+        ->and($deletes)->toBe(3)
+        ->and(DB::table('scarlett_throttles')->pluck('id')->all())->toBe(['renewed']);
 });
 
 it('installs upgrades repeats and safely rolls back the throttle schema', function () {

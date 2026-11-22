@@ -75,6 +75,13 @@ final class ThrottleReservations
              * An expired bucket can start empty without retaining old quota history.
              */
             $window = $policy->perSeconds * self::MILLISECONDS_PER_SECOND;
+            /**
+             * RateLimit checked the window when it was constructed, but the clock has moved since.
+             * Recheck here so the expiry written below cannot overflow into a float.
+             */
+            if ($now > PHP_INT_MAX - $window) {
+                throw new InvalidArgumentException('A named throttle requires a representable positive per_seconds.');
+            }
             $grants = json_decode($bucket->grants, true, flags: JSON_THROW_ON_ERROR);
             if (! is_array($grants) || ! array_is_list($grants)
                 || array_any($grants, fn ($grant): bool => ! is_int($grant))) {
@@ -118,11 +125,17 @@ final class ThrottleReservations
         }
         $cutoff = now()->getTimestampMs();
         $removed = 0;
-        $candidates = DB::table('scarlett_throttles')->where('expires_at', '<=', $cutoff)->select('id');
-        foreach ($candidates->lazyById($batchSize) as $candidate) {
-            // Recheck in the DELETE: a worker may have renewed the quota since selection.
-            $removed += DB::table('scarlett_throttles')->where('id', $candidate->id)->where('expires_at', '<=', $cutoff)->delete();
-        }
+        DB::table('scarlett_throttles')->where('expires_at', '<=', $cutoff)->select('id')->chunkById(
+            $batchSize,
+            function ($candidates) use (&$removed, $cutoff): void {
+                // One DELETE per batch. Recheck expiry in it: a worker may have renewed a quota since selection.
+                $removed += DB::table('scarlett_throttles')
+                    ->whereIn('id', $candidates->pluck('id')->all())
+                    ->where('expires_at', '<=', $cutoff)
+                    ->delete();
+            },
+            'id',
+        );
 
         return $removed;
     }

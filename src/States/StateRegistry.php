@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Scarlett\States;
 
 use InvalidArgumentException;
+use ReflectionClass;
 use Spatie\ModelStates\Transition;
 
 /**
@@ -52,9 +53,15 @@ final class StateRegistry
             if (! is_string($class) || ! is_subclass_of($class, StepState::class)) {
                 throw new InvalidArgumentException('States must extend StepState.');
             }
+            if (! (new ReflectionClass($class))->isInstantiable()) {
+                throw new InvalidArgumentException('States must be concrete StepState classes.');
+            }
             $alias = $class::getMorphClass();
             if (isset($aliases[$alias]) || $alias === $class) {
                 throw new InvalidArgumentException('Each state requires a unique stable alias.');
+            }
+            if (! mb_check_encoding($alias, 'UTF-8') || mb_strlen($alias, 'UTF-8') > 255) {
+                throw new InvalidArgumentException('Stable state aliases must be valid UTF-8 and at most 255 characters.');
             }
             if (($class::satisfiesDependency() || $class::activatesRecovery()) && $class::phase() !== Phase::Settled) {
                 throw new InvalidArgumentException('Only settled states can satisfy dependencies or activate recovery.');
@@ -107,6 +114,9 @@ final class StateRegistry
             if (! in_array($transition[0], $classes, true) || ! in_array($transition[1], $classes, true)
                 || $transition[0]::phase() === Phase::Settled) {
                 throw new InvalidArgumentException('Custom transitions require registered states and cannot reopen settled work.');
+            }
+            if (isset($transition[2]) && ! (new ReflectionClass($transition[2]))->isInstantiable()) {
+                throw new InvalidArgumentException('scarlett.transitions transition classes must be concrete.');
             }
             $transitions[] = $transition;
         }

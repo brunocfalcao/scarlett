@@ -18,8 +18,8 @@ use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
 use Scarlett\Contracts\PayloadMapper;
 use Scarlett\Definition\ExecutionOptions;
-use Scarlett\Execution\ThrottleReservations;
 use Scarlett\Policies\ExceptionHandler;
+use Scarlett\Policies\RateLimit;
 use Scarlett\Policies\RetryPolicy;
 use Scarlett\States\StateRegistry;
 
@@ -56,7 +56,11 @@ final class Configuration
                 throw new InvalidArgumentException('scarlett.input_terminal_exceptions entries must implement Throwable.');
             }
         }
-        foreach (config('scarlett.payload_mappers', []) as $mapper) {
+        $mappers = config('scarlett.payload_mappers', []);
+        if (! is_array($mappers)) {
+            throw new InvalidArgumentException('scarlett.payload_mappers must be an array.');
+        }
+        foreach ($mappers as $mapper) {
             if (! is_string($mapper) || ! is_subclass_of($mapper, PayloadMapper::class)) {
                 throw new InvalidArgumentException('scarlett.payload_mappers entries must implement PayloadMapper.');
             }
@@ -72,10 +76,7 @@ final class Configuration
             throw new InvalidArgumentException('scarlett.throttles must be an array.');
         }
         foreach ($throttles as $name => $policy) {
-            if ((! is_string($name) && ! is_int($name)) || $name === '' || ! is_array($policy)
-                || ! is_int($policy['max_requests'] ?? null) || $policy['max_requests'] < 1
-                || ! is_int($policy['per_seconds'] ?? null) || $policy['per_seconds'] < 1
-                || $policy['per_seconds'] > intdiv(PHP_INT_MAX - now()->getTimestampMs(), ThrottleReservations::MILLISECONDS_PER_SECOND)) {
+            if ((! is_string($name) && ! is_int($name)) || $name === '' || ! RateLimit::isValidPolicy($policy)) {
                 throw new InvalidArgumentException('scarlett.throttles entries require a non-empty name and positive integer max_requests and per_seconds.');
             }
         }

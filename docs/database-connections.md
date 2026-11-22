@@ -98,6 +98,8 @@ shared integration when eliminating that specific idle connection matters.
 
 Only the already-created **default Laravel database connection** is considered.
 Other named connections and separately cached connection variants are untouched.
+Eligible drivers are `sqlite`, `mysql`, `mariadb` and `pgsql`. MariaDB is new in
+2.4.0; the supported test matrix still runs SQLite, MySQL and PostgreSQL.
 Cleanup never creates a connection just to disconnect it. It skips:
 
 - Laravel transactions, including nesting, and active transactions detected on

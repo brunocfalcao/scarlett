@@ -22,6 +22,7 @@ use Scarlett\Execution\Delivery;
 use Scarlett\Failures\Coordinator;
 use Scarlett\Jobs\ExecuteStep;
 use Scarlett\Models\StepRecord;
+use Scarlett\States\Completed;
 use Scarlett\States\StateRegistry;
 use Scarlett\Tests\Fixtures\Approved;
 use Scarlett\Tests\Fixtures\MeasuredState;
@@ -130,4 +131,60 @@ it('loads publication steps in one batch and excludes obsolete deliveries', func
     expect($lookups)->toHaveCount(1);
     Queue::assertNotPushed(ExecuteStep::class, fn ($job) => $job->attempt === $obsolete);
     Queue::assertPushed(ExecuteStep::class, 10);
+});
+
+it('keeps the recovery scan query count flat as queued steps wait on recent deliveries', function () {
+    Queue::fake();
+    $countScanQueries = function (): int {
+        DB::enableQueryLog();
+        DB::flushQueryLog();
+        $stalled = app(Engine::class)->stalled();
+        $count = count(DB::getQueryLog());
+        DB::disableQueryLog();
+        expect($stalled)->toBeFalse();
+
+        return $count;
+    };
+    app(Engine::class)->start(new Workflow(array_map(fn ($index) => controlled('first-'.$index), range(1, 2))));
+    $withTwoQueuedSteps = $countScanQueries();
+    app(Engine::class)->start(new Workflow(array_map(fn ($index) => controlled('second-'.$index), range(1, 8))));
+    expect($countScanQueries())->toBe($withTwoQueuedSteps);
+});
+
+it('reads the workflow row once per saved action and once per finish', function () {
+    Queue::fake();
+    $flow = app(Engine::class)->start(new Workflow([controlled('a')]));
+    $step = $flow->steps()->sole();
+    $engine = app(Engine::class);
+    $engine->claim($step->id, $step->attempt);
+    $workflowReads = fn (array $queries): int => collect($queries)
+        ->filter(fn ($query) => str_contains(str_replace('`', '"', $query['query']), 'from "scarlett_workflows"'))->count();
+    DB::enableQueryLog();
+    DB::flushQueryLog();
+    $engine->saveAction($step->id, $step->attempt, false, Completed::class);
+    $saveReads = $workflowReads(DB::getQueryLog());
+    DB::flushQueryLog();
+    $engine->finish($step->id, $step->attempt);
+    $finishReads = $workflowReads(DB::getQueryLog());
+    DB::disableQueryLog();
+    expect($saveReads)->toBe(1)
+        ->and($finishReads)->toBe(1);
+});
+
+it('does not reload failure hooks that the advance pass already loaded when a workflow completes', function () {
+    Queue::fake();
+    $flow = app(Engine::class)->start(new Workflow([controlled('a')]));
+    $step = $flow->steps()->sole();
+    $engine = app(Engine::class);
+    $engine->claim($step->id, $step->attempt);
+    $engine->saveAction($step->id, $step->attempt, false, Completed::class);
+    DB::enableQueryLog();
+    DB::flushQueryLog();
+    $engine->finish($step->id, $step->attempt);
+    $failureReads = collect(DB::getQueryLog())
+        ->filter(fn ($query) => str_contains(str_replace('`', '"', $query['query']), 'from "scarlett_failures"'))->count();
+    DB::disableQueryLog();
+    // Two intended reads: the advance pass loads hook outcomes, and the publisher looks for pending hooks.
+    expect($flow->fresh()->status)->toBe('completed')
+        ->and($failureReads)->toBe(2);
 });

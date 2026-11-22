@@ -1,5 +1,48 @@
 # Changelog
 
+## 2.4.0 — 2026-11-23
+
+### Fixed
+
+- Replay a sent delivery or failure-hook delivery only after both its send time and its due time are older than `delivery_retry_seconds`, so delayed work is no longer replayed before its retry grace has passed.
+- Give each step and failure-hook publish claim its own lease, so a stale publisher can no longer clear a newer claim.
+- Settle a parent once when its runtime child plan is rejected, without replaying its action: `HandlerCrashed` when `onException()` returned the plan, otherwise `ResultPersistence`. Engine database errors that record an outcome no longer reach the step's exception classifier.
+- Check the verification budget, not the action budget, when a step asks whether it can retry after its action has been saved.
+- Cast step priority to an integer, so runtime children inherit it when the database returns it as text.
+- Release idle MariaDB connections at opted-in boundaries, as MySQL connections already were.
+- Retry transient database conflicts under `scarlett.transaction_attempts` when starting a cooldown and when archiving, deleting or purging history.
+- Refuse, before any work is saved: state classes that are not concrete `StepState` classes, state aliases that are not valid UTF-8 or are longer than 255 characters, abstract custom transitions, a `scarlett.payload_mappers` setting that is not an array, empty queue or connection names, and workflow metadata that does not encode as JSON.
+- Refuse payload strings, array keys, enum backing values and model-reference fields that are not valid UTF-8, and payloads nested deeper than 254 levels, when they are written. A stored payload node with a wrong-typed field raises `InvalidArgumentException` instead of a `TypeError` or a coerced value.
+- Refuse a named rate limit whose name or sharing key is not valid UTF-8, and a quota window that would overflow, before any quota is written. Refuse a retry or verification wait list that is not a plain list instead of waiting zero seconds.
+
+### Changed
+
+- `Throttled` accepts optional `code` and `previous` arguments, as `RuntimeException` does.
+- Split the runner into business, classification, persistence and verification phases; business code runs in its own protected section.
+- Document that a replacement's subject identifier longer than 255 characters is rejected after the preparation callback has written, and that the transaction rolls those writes back. This behaviour is unchanged.
+
+### Performance
+
+- Select recoverable steps in SQL instead of one query per queued step; read failure-hook candidates in batches.
+- Delete history and delivery rows in chunks of 500 and read only the columns retention needs.
+- Prune expired throttle buckets with one delete per batch instead of one per bucket.
+- Read every earlier result a step needs in one query. A missing result still raises `ModelNotFoundException`.
+- Lock retained steps for subject deletion in batched reads, in the same order as before.
+- Reuse the locked workflow row when saving an action, reuse locked failure hooks on completion, and write retry and child-verification updates once.
+- Describe each step class and compute each sibling stage's prerequisites once per stored workflow; resolve each payload mapper and walk each ancestry chain once per call.
+
+### Tests
+
+- Add regressions for replay grace, publish leases, rejected child plans, verification retry budgets, MariaDB connection release, transaction retries, configuration and admission refusals, payload limits and malformed nodes, rate-limit refusals, batched result reads and query counts.
+- Backdate due time together with send time in the collision race fixtures.
+- Block history writes with each database's own trigger syntax and compare captured SQL independently of identifier quoting, so these checks run on SQLite, MySQL and PostgreSQL alike.
+
+### Upgrade
+
+- No migration, configuration key, dependency or workflow signature changes; all eleven published migration files are unchanged from v2.3.4.
+- Check the refusals listed in the [migration guide](migration-from-step-dispatcher.md#v240-hardening) against your configuration, workflow definitions and stored payloads before upgrading.
+- Source publication does not update, migrate or deploy consuming applications.
+
 ## 2.3.4 — 2026-11-17
 
 ### Documentation

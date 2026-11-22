@@ -142,6 +142,8 @@ straight to parent verification with `$result`.
   restoration failure. The step must have been constructed and its action must
   not already be persisted. `$state` must be registered, successful, non-skipping,
   and reachable from both Running and WaitingForChildren.
+  A plan the engine rejects ends the parent as `ResultPersistence` when returned from
+  `handle()` or `before()`, and as `HandlerCrashed` when returned from `onException()`.
 
 ## Upgrade and rollback
 

@@ -26,7 +26,12 @@ use Scarlett\Models\WorkflowRecord;
  */
 final class WorkflowSlots
 {
-    /** Invoke before acquiring application locks; callback writes must share this connection and be replay-safe. */
+    /**
+     * Invoke before acquiring application locks; callback writes must share this connection and be replay-safe.
+     * The replacement's subject identifier is limited to 255 characters by Workflow validation. That check runs
+     * when the replacement starts, after $prepare has run under the locks, so an oversized identifier is rejected
+     * only after the callback's writes have been made, and the transaction rolls them back.
+     */
     public function replace(SubjectSlot $slot, callable $prepare): ?WorkflowRecord
     {
         try {

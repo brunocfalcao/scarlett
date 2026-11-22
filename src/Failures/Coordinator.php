@@ -70,14 +70,21 @@ final class Coordinator
         ]);
     }
 
-    /** Children may fail later while running; wait for the entire ordinary subtree before the parent's hook. */
-    public function advance(WorkflowRecord $workflow, Collection $steps): void
+    /**
+     * Children may fail later while running; wait for the entire ordinary subtree before the parent's hook.
+     * Returns whether any hook of this workflow is still unfinished, judged from the rows locked here.
+     */
+    public function advance(WorkflowRecord $workflow, Collection $steps): bool
     {
         // Use current hook outcomes even inside a consumer's older transaction snapshot.
-        $failures = $workflow->failures()->lockForUpdate()->get()->keyBy('step_id');
+        $failures = $workflow->failures()->lockForUpdate()->get();
+        if ($failures->isEmpty()) {
+            return false;
+        }
+        $failuresByStep = $failures->keyBy('step_id');
         $stepsById = $steps->keyBy('id');
         $childrenByParent = $steps->groupBy('parent_key');
-        foreach ($failures as $failure) {
+        foreach ($failuresByStep as $failure) {
             if ($failure->status !== Status::Pending) {
                 continue;
             }
@@ -92,11 +99,13 @@ final class Coordinator
              */
             $descendants = $this->descendants($childrenByParent, $owner->key);
             $waiting = $descendants->contains(fn (StepRecord $step): bool => $step->state::phase() !== Phase::Settled
-                || (isset($failures[$step->id]) && ! $failures[$step->id]->status->settled()));
+                || (isset($failuresByStep[$step->id]) && ! $failuresByStep[$step->id]->status->settled()));
             if (! $waiting) {
                 $this->enqueue($failure);
             }
         }
+
+        return $failures->contains(fn (FailureRecord $failure): bool => ! $failure->status->settled());
     }
 
     private function descendants(Collection $childrenByParent, string $parent): Collection
@@ -235,9 +244,9 @@ final class Coordinator
          * retry settings. It does not change the original action's result or failure cause.
          * Exhaustion settles the hook so the workflow is not held open indefinitely.
          */
+        // Both branches below persist these changes in their own single update.
         $failure->failures++;
         $failure->error = $error;
-        $failure->save();
         $policy = app(config('scarlett.retry_policy'));
         if ($policy->permits($failure->failures, false, $failure->step)) {
             $this->enqueue($failure, $policy->delay($failure->failures, false, $failure->step));
@@ -261,9 +270,12 @@ final class Coordinator
             return $failure->lease_until !== null && ! $failure->lease_until->isFuture();
         }
 
+        // A sent hook is replayed only once its retry grace has passed since both sending and its due time.
+        $cutoff = now()->subSeconds((int) config('scarlett.delivery_retry_seconds'));
+
         return $failure->status === Status::Queued && ! $failure->available_at->isFuture()
             && ($failure->publishing_until === null || ! $failure->publishing_until->isFuture())
-            && ($failure->sent_at === null || $failure->sent_at->lte(now()->subSeconds((int) config('scarlett.delivery_retry_seconds'))));
+            && ($failure->sent_at === null || ($failure->sent_at->lte($cutoff) && $failure->available_at->lte($cutoff)));
     }
 
     public function recover(string $id): bool

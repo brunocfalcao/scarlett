@@ -53,3 +53,22 @@ it('does not open an unused default connection during cleanup', function () {
         DB::setDefaultConnection($previous);
     }
 });
+
+it('releases an idle default connection for every MySQL-family driver', function (string $driver) {
+    $name = "release_{$driver}_test";
+    config(['scarlett.release_database_connection' => true, "database.connections.{$name}" => [
+        'driver' => $driver, 'database' => 'scarlett_release', 'prefix' => '',
+    ]]);
+    $previous = DB::getDefaultConnection();
+    DB::setDefaultConnection($name);
+    try {
+        $connection = DB::connection();
+        $connection->setPdo(new PDO('sqlite::memory:'));
+        expect($connection->getDriverName())->toBe($driver)
+            ->and(app(ConnectionRelease::class)->release())->toBeTrue()
+            ->and($connection->getRawPdo())->toBeNull();
+    } finally {
+        DB::purge($name);
+        DB::setDefaultConnection($previous);
+    }
+})->with(['mysql', 'mariadb']);

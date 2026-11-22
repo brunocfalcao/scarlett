@@ -140,7 +140,8 @@ final class Engine
         return $this->attemptLock->mutate(
             $stepId,
             fn (string $id): mixed => StepRecord::whereKey($id)->toBase()->value('workflow_id'),
-            fn (WorkflowRecord $workflow, string $id): ?StepRecord => $workflow->steps()->whereKey($id)->lockForUpdate()->first(),
+            // Hand the already-locked workflow to the step so its guards do not reload that row.
+            fn (WorkflowRecord $workflow, string $id): ?StepRecord => $workflow->steps()->whereKey($id)->lockForUpdate()->first()?->setRelation('workflow', $workflow),
             $operation,
             $advance ? function (WorkflowRecord $workflow, string $workflowId): void {
                 $this->progression->advance($workflow);

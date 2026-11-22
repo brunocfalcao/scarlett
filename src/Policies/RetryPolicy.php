@@ -31,7 +31,7 @@ class RetryPolicy
     public function delay(int $failures, bool $verification = false, ?StepRecord $step = null): int
     {
         $schedule = $this->settings($step, $verification)['backoff_seconds'];
-        if (! is_array($schedule) || $schedule === []) {
+        if (! is_array($schedule) || $schedule === [] || ! array_is_list($schedule)) {
             throw new \InvalidArgumentException('Retry backoff needs a non-empty list.');
         }
 

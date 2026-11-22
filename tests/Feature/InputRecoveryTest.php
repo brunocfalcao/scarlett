@@ -13,15 +13,20 @@ declare(strict_types=1);
 
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Contracts\PayloadMapper;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
+use Scarlett\Inputs\FromResult;
+use Scarlett\Inputs\InputBindings;
 use Scarlett\Inputs\PayloadCodec;
 use Scarlett\Inputs\Service;
+use Scarlett\Models\StepRecord;
 use Scarlett\Tests\Fixtures\Amount;
 use Scarlett\Tests\Fixtures\ControlledStep;
+use Scarlett\Tests\Fixtures\EchoStep;
 use Scarlett\Tests\Fixtures\PreparingStep;
 
 beforeEach(function () {
@@ -181,3 +186,50 @@ it('retries mapped input restoration through the same budget', function () {
     expect(statesOf($flow->id))->toBe(['mapped' => 'completed'])->and(ControlledStep::$actions)->toBe(['mapped' => 1]);
     expect(app(PayloadCodec::class)->decode($flow->steps()->sole()->result)->minorUnits)->toBe(42);
 });
+
+it('resolves several result inputs with one step lookup instead of loading the workflow and each source', function () {
+    $engine = app(Engine::class);
+    $flow = $engine->start(new Workflow([
+        new Node('one', EchoStep::class, inputs: ['value' => 'one']),
+        new Node('two', EchoStep::class, inputs: ['value' => 'two']),
+        new Node('three', EchoStep::class, inputs: ['value' => 'three']),
+        new Node('join', EchoStep::class, stage: 1, inputs: ['value' => new FromResult('one')]),
+    ]));
+    foreach (['one', 'two', 'three'] as $key) {
+        runStep($flow->id, $key);
+    }
+    $join = StepRecord::where('workflow_id', $flow->id)->where('key', 'join')->sole();
+    $join->inputs = app(InputBindings::class)->encode(
+        ['a' => new FromResult('one'), 'b' => new FromResult('two'), 'c' => new FromResult('three')],
+        ['one', 'two', 'three'],
+    );
+    $queries = 0;
+    DB::listen(function () use (&$queries): void {
+        $queries++;
+    });
+    expect(app(InputBindings::class)->resolve($join))->toBe(['a' => 'one', 'b' => 'two', 'c' => 'three'])
+        ->and($queries)->toBe(1);
+});
+
+it('keeps literal, missing and unproduced inputs behaving as before', function (string $case) {
+    $engine = app(Engine::class);
+    $flow = $engine->start(new Workflow([
+        new Node('pending', EchoStep::class, inputs: ['value' => 'x']),
+        new Node('join', EchoStep::class, stage: 1, inputs: ['value' => new FromResult('pending')]),
+    ]));
+    $join = StepRecord::where('workflow_id', $flow->id)->where('key', 'join')->sole();
+    $source = $case === 'missing' ? 'ghost' : 'pending';
+    $join->inputs = $case === 'literal'
+        ? app(InputBindings::class)->encode(['a' => 'literal'], [])
+        : app(InputBindings::class)->encode(['a' => new FromResult($source)], [$source]);
+    $queries = 0;
+    DB::listen(function () use (&$queries): void {
+        $queries++;
+    });
+    $resolve = fn () => app(InputBindings::class)->resolve($join);
+    match ($case) {
+        'literal' => expect($resolve())->toBe(['a' => 'literal'])->and($queries)->toBe(0),
+        'missing' => expect($resolve)->toThrow(fn (ModelNotFoundException $exception) => expect($exception->getModel())->toBe(StepRecord::class)),
+        'unproduced' => expect($resolve)->toThrow(InvalidArgumentException::class, 'Step pending did not produce a result.'),
+    };
+})->with(['literal', 'missing', 'unproduced']);
