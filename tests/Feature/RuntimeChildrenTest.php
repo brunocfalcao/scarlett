@@ -24,6 +24,7 @@ use Scarlett\Execution\Decision;
 use Scarlett\Execution\Runner;
 use Scarlett\Inputs\FromResult;
 use Scarlett\Inputs\PayloadCodec;
+use Scarlett\Models\StepRecord;
 use Scarlett\States\Completed;
 use Scarlett\States\Running;
 use Scarlett\States\WaitingForChildren;
@@ -181,7 +182,9 @@ it('settles a child handoff that cannot be saved as a result persistence failure
     expect(InvalidChildPlanStep::$actions)->toBe(1);
     expect(InvalidChildPlanStep::$exceptions)->toBe(0);
     expect((string) $parent->state)->toBe('failed');
-    expect($parent->error)->toContain('handoff blocked');
+    expect($parent->error)->toStartWith('Illuminate\\Database\\QueryException [SQLSTATE ')
+        ->toEndWith('] (details in the application log)')
+        ->not->toContain('handoff blocked');
     expect($flow->steps()->count())->toBe(1);
     expect(DB::table('scarlett_history')->where('step_id', $parent->id)->where('to_state', 'failed')->count())->toBe(1);
 });
@@ -198,6 +201,50 @@ it('records a rejected exception handler child plan as a handler crash without r
     expect($parent->error)->toBe('Duplicate step identity: same');
     expect($flow->steps()->count())->toBe(1);
     expect($flow->failures()->sole()->cause->value)->toBe('handler_crashed');
+});
+
+it('classifies a passing database error during a handle() child handoff so the step retries it', function (string $message, array $errorInfo, int $times) {
+    config(['scarlett.transaction_attempts' => 5]);
+    InvalidChildPlanStep::$actions = 0;
+    InvalidChildPlanStep::$exceptions = 0;
+    $flow = app(Engine::class)->start(new Workflow([new Node('parent', InvalidChildPlanStep::class, inputs: ['mode' => 'valid'])]));
+    expect($flow->steps()->where('key', 'parent')->sole()->failures)->toBe(0);
+    $remaining = $times;
+    StepRecord::creating(function (StepRecord $step) use (&$remaining, $message, $errorInfo): void {
+        if ($remaining > 0 && $step->parent_key === 'parent') {
+            $remaining--;
+            $pdo = new PDOException($message);
+            $pdo->errorInfo = $errorInfo;
+            throw new QueryException('testing', 'insert into scarlett_steps', [], $pdo);
+        }
+    });
+    runStep($flow->id, 'parent');
+    $parent = $flow->steps()->where('key', 'parent')->sole()->fresh();
+    expect(InvalidChildPlanStep::$actions)->toBe(1)
+        ->and(InvalidChildPlanStep::$exceptions)->toBe(1)
+        ->and((string) $parent->state)->toBe('queued')
+        ->and($parent->failures)->toBe(1)
+        ->and($flow->steps()->count())->toBe(1);
+    $this->travelTo($parent->available_at);
+    runStep($flow->id, 'parent');
+    expect(InvalidChildPlanStep::$actions)->toBe(2)
+        ->and((string) $parent->fresh()->state)->toBe('waitingforchildren')
+        ->and($flow->steps()->where('parent_key', 'parent')->count())->toBe(1);
+})->with([
+    'serialization conflict named only in errorInfo' => ['SQLSTATE[40001]: could not serialize access due to concurrent update', ['40001', 7, 'could not serialize access due to concurrent update'], 1],
+    'deadlock that outlasts the transaction attempts' => ['SQLSTATE[40001]: Deadlock found when trying to get lock', ['40001', 1213, 'Deadlock found when trying to get lock'], 5],
+    'dropped connection' => ['SQLSTATE[HY000]: General error: 2006 MySQL server has gone away', ['HY000', 2006, 'MySQL server has gone away'], 1],
+]);
+
+it('settles a rejected child plan once even when its rejection text mentions a deadlock', function () {
+    InvalidChildPlanStep::$actions = 0;
+    InvalidChildPlanStep::$exceptions = 0;
+    $flow = app(Engine::class)->start(new Workflow([new Node('parent', InvalidChildPlanStep::class, inputs: ['mode' => 'deadlock-named'])]));
+    runStep($flow->id, 'parent');
+    $parent = $flow->steps()->where('key', 'parent')->sole()->fresh();
+    expect(InvalidChildPlanStep::$exceptions)->toBe(0)
+        ->and((string) $parent->state)->toBe('failed')
+        ->and($parent->error)->toBe('Duplicate step identity: deadlock detected');
 });
 
 it('leaves a database error during throttling to lease recovery instead of the action classifier', function () {

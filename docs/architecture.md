@@ -59,7 +59,17 @@ service resolution must therefore tolerate repeated preparation.
 Each runner phase keeps business code in a guarded section; engine writes that record
 outcomes run outside it. A result that cannot be saved fails as `ResultPersistence`.
 A child plan the engine rejects is terminal: `HandlerCrashed` when it came from
-`onException()`, otherwise `ResultPersistence`.
+`onException()`, otherwise `ResultPersistence`. A passing database error (deadlock,
+serialization conflict, dropped connection) while saving a result or handing off a plan
+from `handle()` or `before()` is not a rejection: it reaches `onException()` like an
+action error, so the step's own rules can retry it; a retry runs the action again
+because no result was saved. Only database exceptions count: a rejection whose text
+mentions a deadlock still settles once. A save that committed before its
+connection dropped goes straight to verification. The caught exception's message is
+read only after `onException()` returns, so a handler can replace text it must not have
+stored. A database error from one of these engine writes, or from a failure hook, is
+stored as its class and SQLSTATE only, because its message quotes the step's payload or
+the hook's writes; the full error is reported to the application log.
 
 When configured, runners release the default connection before actions, verification
 and failure hooks, and on exit. `ConnectionRelease` checks transaction and PDO
@@ -74,6 +84,7 @@ must not cross those boundaries. See [connection lifetime](database-connections.
 | `Definition` | Declarative graph and execution defaults | No early business construction; node options replace class options |
 | `Inputs`, `Contracts/PayloadMapper` | Versioned JSON and late bindings | No arbitrary object serialization; aliases remain readable for retained work |
 | `Execution/ConnectionRelease` | Opt-in default-connection lifetime | Release only outside transactions; preserve memory SQLite; allow only sqlite, mysql, mariadb and pgsql; next query reconnects |
+| `Execution/Runner` | Business, classification, persistence and verification phases | Read the exception message only after `onException()` returns; a result save or child handoff that hits a passing database error is classified, not settled; never store an engine write's database message |
 | `Execution/Invoker` | Typed constructor/handler calls | Explicit names, exact Context injection and strict PHP invocation |
 | `Execution/Signature` | Declaration metadata and actual argument diagnostics | No eager defaults; current-attempt writes; no service/context serialization; diagnostic encoding failure does not reject an otherwise valid argument |
 | `Engine`, `Execution/WorkflowAttemptLock`, `Execution/Context` | Claims, leases and guarded mutations | A current token, running phase and future lease are all required; step and failure records share the workflow lock |
@@ -133,7 +144,8 @@ their coordinator waits for ordinary descendant hooks, while rescue progression
 does not wait for hooks. Workflow settlement waits for both step settlement and
 unfinished failure records.
 
-`onException()` classifies errors in a live action path. It cannot run after a
+`onException()` classifies errors in a live action path, including passing database
+errors from saving its result or recording its child plan. It cannot run after a
 worker is killed. Terminal effects belong in `onFailure()`; reconstruction failure
 uses `onFailureWithoutInstance()` with saved identifiers. A handler may be retried
 after its effect but before acknowledgement. Use its stable logical failure ID

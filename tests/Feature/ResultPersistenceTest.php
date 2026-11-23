@@ -11,8 +11,12 @@ declare(strict_types=1);
  * verification, where an earlier ownership read is no longer sufficient.
  */
 
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Queue;
 use Scarlett\Contracts\PayloadMapper;
+use Scarlett\Definition\ExecutionOptions;
 use Scarlett\Definition\Node;
 use Scarlett\Definition\Workflow;
 use Scarlett\Engine;
@@ -55,6 +59,71 @@ it('fails a result write error without classifying it as an action failure', fun
     expect(statesOf($flow->id))->toBe(['untouched' => 'queued', 'write' => 'failed']);
     expect(ControlledStep::$actions)->toBe(['write' => 1]);
     expect($flow->steps()->where('key', 'write')->sole()->error)->toBe('Result persistence unavailable.');
+});
+
+/** A database error carrying the stored payload as its binding, as Laravel reports a refused write. */
+function resultPersistenceDatabaseError(string $message, array $errorInfo, mixed $binding): QueryException
+{
+    $pdo = new PDOException($message);
+    $pdo->errorInfo = $errorInfo;
+
+    return new QueryException('testing', 'update scarlett_steps set result = ?', [$binding], $pdo);
+}
+
+it('retries a result save that hits a passing database error under the step\'s own rules', function () {
+    $flow = app(Engine::class)->start(new Workflow([new Node('write', ControlledStep::class, inputs: ['name' => 'write', 'value' => 'Private words a person wrote.'], execution: new ExecutionOptions(attempts: 2, backoffSeconds: [3]))]));
+    expect($flow->steps()->where('key', 'write')->sole()->action_completed)->toBeFalse();
+    $remaining = 1;
+    StepRecord::saving(function (StepRecord $step) use (&$remaining): void {
+        if ($remaining > 0 && $step->key === 'write' && $step->isDirty('has_result')) {
+            $remaining--;
+            throw resultPersistenceDatabaseError('SQLSTATE[HY000]: General error: 2006 MySQL server has gone away', ['HY000', 2006, 'MySQL server has gone away'], $step->getAttributes()['result']);
+        }
+    });
+    runStep($flow->id, 'write');
+    $write = $flow->steps()->where('key', 'write')->sole();
+    expect((string) $write->state)->toBe('queued')
+        ->and($write->failures)->toBe(1)
+        ->and($write->action_completed)->toBeFalse()
+        ->and($write->error)->toBe('Illuminate\Database\QueryException [SQLSTATE HY000] (details in the application log)');
+    $this->travelTo($write->available_at);
+    runStep($flow->id, 'write');
+    expect((string) $write->fresh()->state)->toBe('completed')
+        ->and(ControlledStep::$actions)->toBe(['write' => 2]);
+});
+
+it('verifies a result whose save committed before its connection dropped', function () {
+    $flow = app(Engine::class)->start(new Workflow([new Node('write', ControlledStep::class, inputs: ['name' => 'write', 'value' => 'saved value'], execution: new ExecutionOptions(attempts: 2, backoffSeconds: [3]))]));
+    expect($flow->steps()->where('key', 'write')->sole()->action_completed)->toBeFalse();
+    StepRecord::saved(function (StepRecord $step): void {
+        if ($step->key === 'write' && $step->wasChanged('has_result')) {
+            DB::afterCommit(fn () => throw resultPersistenceDatabaseError('SQLSTATE[HY000]: General error: 2006 MySQL server has gone away', ['HY000', 2006, 'MySQL server has gone away'], 'saved value'));
+        }
+    });
+    runStep($flow->id, 'write');
+    $write = $flow->steps()->where('key', 'write')->sole();
+    expect((string) $write->state)->toBe('completed')
+        ->and($write->failures)->toBe(0)
+        ->and($write->error)->toBeNull()
+        ->and(ControlledStep::$actions)->toBe(['write' => 1]);
+});
+
+it('stores a database error that refuses a result save without the text it quotes', function () {
+    Exceptions::fake();
+    $flow = app(Engine::class)->start(new Workflow([new Node('write', ControlledStep::class, inputs: ['name' => 'write', 'value' => 'Private words a person wrote.'])]));
+    expect($flow->steps()->where('key', 'write')->sole()->error)->toBeNull();
+    StepRecord::saving(function (StepRecord $step): void {
+        if ($step->key === 'write' && $step->isDirty('has_result')) {
+            throw resultPersistenceDatabaseError('SQLSTATE[23000]: Integrity constraint violation: 19 CHECK constraint failed', ['23000', 19, 'CHECK constraint failed'], $step->getAttributes()['result']);
+        }
+    });
+    runStep($flow->id, 'write');
+    $write = $flow->steps()->where('key', 'write')->sole();
+    expect((string) $write->state)->toBe('failed')
+        ->and($write->error)->toBe('Illuminate\Database\QueryException [SQLSTATE 23000] (details in the application log)')
+        ->and(DB::table('scarlett_history')->where('step_id', $write->id)->where('reason', 'like', '%Private words%')->exists())->toBeFalse()
+        ->and(ControlledStep::$actions)->toBe(['write' => 1]);
+    Exceptions::assertReported(fn (QueryException $exception): bool => str_contains($exception->getMessage(), 'Private words a person wrote.'));
 });
 
 it('verifies the same restored result type on first execution and retries', function () {

@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.4.1 — 2026-11-23
+
+### Fixed
+
+- Store a failed step's error text after its `onException()` returns, as v2.3.4 did, so a step that replaces a private exception message there keeps that text out of step records and history. v2.4.0 stored the original message.
+- Classify a deadlock, serialization conflict or dropped connection raised while recording a runtime child plan returned by `handle()` or `before()` through the step's `onException()`, as v2.3.4 did, so the step's own rules can retry it. v2.4.0 failed the parent as `ResultPersistence`. A rejected plan still settles once, even when its rejection text mentions a deadlock.
+- Classify the same passing database errors while saving an action's result through `onException()` instead of failing the step as `ResultPersistence`, as v2.3.4 and v2.4.0 did. A retry runs the action again, because no result was saved. When the save committed before the connection dropped, the step goes on to verification and its action does not run again.
+- Store a database error that refuses a result save or a child handoff, or that is raised while a failure hook runs, as its exception class and SQLSTATE with "(details in the application log)", and report the full exception. A passing one that `onException()` classified is stored the same way when its decision gives no reason. The SQL bindings and database text in the message can quote a step's inputs, result or the content a hook was writing. Other errors keep their message.
+
+### Tests
+
+- Add regressions for the stored error text after `onException()`, child handoff retries on passing database errors (including a deadlock that outlasts `scarlett.transaction_attempts`), rejection text that mentions a deadlock, result save retries, a result save that committed before its connection dropped, and the neutral stored text for refused saves, refused handoffs and failure-hook database errors.
+
+### Upgrade
+
+- No migration, configuration key, dependency or workflow signature changes; all eleven published migration files are unchanged from v2.4.0.
+- A step whose `onException()` retries on passing database errors now also retries them during a child handoff or a result save. Read stored `error` values and failure reasons for database errors as a class and SQLSTATE; the full error is in the application log.
+- Source publication does not update, migrate or deploy consuming applications.
+
 ## 2.4.0 — 2026-11-23
 
 ### Fixed

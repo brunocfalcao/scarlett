@@ -11,7 +11,10 @@ declare(strict_types=1);
  * or successful work must not accidentally register terminal failure effects.
  */
 
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -45,6 +48,7 @@ beforeEach(function () {
     FailureAwareStep::$hookCalls = 0;
     FailureAwareStep::$hookThrows = false;
     FailureAwareStep::$constructionThrows = false;
+    FailureAwareStep::$hookError = null;
 });
 
 it('defaults terminal hook transport timeout while preserving the named timeout argument', function () {
@@ -115,7 +119,22 @@ it('durably handles terminal origins with a stable cause and useful reason exact
     ['fail', 'decided', 'A useful failure reason.'], ['stop', 'decided', 'A useful stop reason.'],
     ['classified', 'decided', 'Readable explanation.'], ['throw', 'budget_exhausted', 'test failure'],
     ['lost', 'attempt_lost', 'Execution lease expired.'], ['verify', 'budget_exhausted', 'Completion verification did not pass.'], ['handler-crash', 'handler_crashed', 'Handler crashed.'],
+    ['redacted', 'decided', 'RuntimeException (details withheld)'],
 ]);
+
+it('stores the exception message as onException() left it when a step retries', function () {
+    $flow = failureFlow('redacted', attempts: 2);
+    $before = $flow->steps()->sole();
+    expect((string) $before->state)->toBe('queued')
+        ->and($before->failures)->toBe(0)
+        ->and($before->error)->toBeNull();
+    runStep($flow->id, 'action');
+    $step = $flow->steps()->sole()->fresh();
+    expect((string) $step->state)->toBe('queued')
+        ->and($step->failures)->toBe(1)
+        ->and($step->error)->toBe('RuntimeException (details withheld)')
+        ->and(DB::table('scarlett_history')->where('step_id', $step->id)->where('reason', 'like', '%Private words%')->exists())->toBeFalse();
+});
 
 it('runs failure handling from stored identifiers when original construction cannot succeed', function () {
     $flow = failureFlow('success');
@@ -177,6 +196,22 @@ it('retries hook errors within their own budget and protects unfinished failure 
         ->and($step->fresh()->error)->toBe('A useful failure reason.');
     expect(app(History::class)->delete($flow->id))->toBeTrue();
     expect(FailureRecord::where('step_id', $step->id)->exists())->toBeFalse();
+});
+
+it('stores a database error from a failure hook without the text it quotes', function () {
+    Exceptions::fake();
+    $flow = failureFlow('fail', 2);
+    runStep($flow->id, 'action');
+    $step = $flow->steps()->sole();
+    $pdo = new PDOException('SQLSTATE[23000]: Integrity constraint violation: 19 CHECK constraint failed');
+    $pdo->errorInfo = ['23000', 19, 'CHECK constraint failed'];
+    FailureAwareStep::$hookThrows = true;
+    FailureAwareStep::$hookError = new QueryException('testing', 'insert into notes (body) values (?)', ['Private words a person wrote.'], $pdo);
+    expect(FailureRecord::where('step_id', $step->id)->sole()->error)->toBeNull();
+    $failure = handleFailure($step->id);
+    expect($failure->status)->toBe(Status::Queued)
+        ->and($failure->error)->toBe('Illuminate\Database\QueryException [SQLSTATE 23000] (details in the application log)');
+    Exceptions::assertReported(fn (QueryException $exception): bool => str_contains($exception->getMessage(), 'Private words a person wrote.'));
 });
 
 it('never invokes failure hooks for cancelled skipped or successfully completed work', function (string $mode) {

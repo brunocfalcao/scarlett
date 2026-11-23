@@ -48,6 +48,9 @@ flowchart LR
 
 A backup remains a separate step, with its own execution settings, retries,
 telemetry and failure handling. Your application selects the backup policy.
+`onException()` also receives a deadlock, serialization conflict or dropped connection
+raised while Scarlett records a plan from `handle()`; retry those instead of treating
+them as a failed candidate.
 
 ```php
 public function onException(Throwable $exception, Context $context): Decision
@@ -144,6 +147,9 @@ straight to parent verification with `$result`.
   and reachable from both Running and WaitingForChildren.
   A plan the engine rejects ends the parent as `ResultPersistence` when returned from
   `handle()` or `before()`, and as `HandlerCrashed` when returned from `onException()`.
+  A passing database error while handing off a `handle()` or `before()` plan is not a
+  rejection: `onException()` classifies it, so the parent can retry. Only database
+  exceptions count; a rejection whose text mentions a deadlock still ends the parent.
 
 ## Upgrade and rollback
 

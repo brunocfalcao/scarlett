@@ -24,6 +24,9 @@ flowchart LR
     Slug --> Result["hello-laravel"]
 ```
 
+Version 2.4.1 restores v2.3.4's retry of passing database errors during child
+handoffs, extends it to result saves, keeps database error text out of stored errors,
+and stores the error text `onException()` leaves; see the [migration guide](migration-from-step-dispatcher.md#v241-runner-fixes).
 Version 2.4.0 hardens validation, payload limits, delivery replay, recovery scans
 and runner error boundaries. It adds no migration or configuration change; see the
 [migration guide](migration-from-step-dispatcher.md#v240-hardening).

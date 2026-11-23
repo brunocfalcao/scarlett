@@ -18,6 +18,7 @@ use Scarlett\Execution\ConnectionRelease;
 use Scarlett\Execution\Context;
 use Scarlett\Execution\Failure;
 use Scarlett\Execution\Invoker;
+use Scarlett\Execution\StoredError;
 use Scarlett\Inputs\InputBindings;
 use Throwable;
 
@@ -74,7 +75,8 @@ final class Runner
             }
             $this->coordinator->complete($id, $attempt);
         } catch (Throwable $exception) {
-            $this->coordinator->reject($id, $attempt, $exception->getMessage());
+            // A database error here can quote what the hook was writing; store only its kind.
+            $this->coordinator->reject($id, $attempt, StoredError::describe($exception));
         }
     }
 }

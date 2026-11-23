@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 /**
  * Makes original action failure and later terminal-hook behavior independently
- * controllable. Tests can break construction, classification, or the durable hook.
+ * controllable. Tests can break construction, classification, or the durable hook, and
+ * can make the classifier replace a private exception message as a redacting consumer does.
  * The fallback reads saved literals without an instance; guarded metadata records
  * the stable failure ID, original cause, and whether that fallback path was used.
  */
@@ -25,6 +26,9 @@ class FailureAwareStep extends ControlledStep
 
     public static bool $constructionThrows = false;
 
+    /** The error a throwing hook raises; null raises a plain temporary error. */
+    public static ?Throwable $hookError = null;
+
     public function __construct(string $name, string $mode = 'success', mixed $value = null)
     {
         if (self::$constructionThrows) {
@@ -40,6 +44,7 @@ class FailureAwareStep extends ControlledStep
             'approved' => Decision::complete(null, Approved::class),
             'stop' => Decision::stop('A useful stop reason.'),
             'handler-crash', 'classified' => throw new \RuntimeException('Technical exception.'),
+            'redacted' => throw new \RuntimeException('Private words a person wrote.'),
             default => parent::before($context),
         };
     }
@@ -49,6 +54,12 @@ class FailureAwareStep extends ControlledStep
         if ($this->mode === 'handler-crash') {
             throw new \RuntimeException('Handler crashed.');
         }
+        if ($this->mode === 'redacted') {
+            // Replace the message as a consumer that keeps private text out of step records does.
+            (new \ReflectionProperty(\Exception::class, 'message'))->setValue($exception, 'RuntimeException (details withheld)');
+
+            return $context->canRetry() ? Decision::retry() : Decision::fail();
+        }
 
         return $this->mode === 'classified' ? Decision::fail('Readable explanation.') : parent::onException($exception, $context);
     }
@@ -57,7 +68,7 @@ class FailureAwareStep extends ControlledStep
     {
         self::$hookCalls++;
         if (self::$hookThrows) {
-            throw new \RuntimeException('Temporary hook error.');
+            throw self::$hookError ?? new \RuntimeException('Temporary hook error.');
         }
         self::record($context, $failure, $this->name, false);
     }

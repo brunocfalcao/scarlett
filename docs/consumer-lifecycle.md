@@ -270,6 +270,11 @@ both a rescue and a failure hook.
 `Decision::fail($reason)` and `stop($reason)` persist the supplied text as the
 step's error and handler reason, overriding the caught exception message. Empty
 text is preserved; omitted text falls back to the available engine diagnostic, or remains `null`.
+For an action exception that diagnostic is the exception's message as it stands after
+`onException()` returns, so a handler may replace a message that quotes private content.
+For a database error from Scarlett's own result save or child handoff, the diagnostic
+is the exception class and SQLSTATE followed by "(details in the application log)";
+the full exception is passed to `report()`.
 
 ### Typed failure data
 
@@ -293,19 +298,20 @@ Requesting a service/result binding or absent name throws `InvalidArgumentExcept
 
 | `FailureCause` case | Backed value | Origin |
 | --- | --- | --- |
-| `Decided` | `decided` | The step's precheck or exception policy chose fail/stop |
+| `Decided` | `decided` | The step's precheck or exception policy chose fail/stop, including for a passing database error while saving the result or recording a child plan |
 | `BudgetExhausted` | `budget_exhausted` | Business, preparation or verification retry budget exhausted |
 | `AttemptLost` | `attempt_lost` | Expired execution lease exhausted the applicable budget |
 | `HandlerCrashed` | `handler_crashed` | The action's exception classifier failed, or `onException()` returned a child plan the engine rejected |
 | `InputResolution` | `input_resolution` | Input/constructor failure classified terminal directly |
 | `ChildFailed` | `child_failed` | A failed/stopped child concluded its parent |
 | `ChildResultMissing` | `child_result_missing` | A runtime parent selected a child that settled without a durable result |
-| `ResultPersistence` | `result_persistence` | A successful action's result could not be stored, or `handle()`/`before()` returned a child plan the engine rejected |
+| `ResultPersistence` | `result_persistence` | A successful action's result could not be stored, or `handle()`/`before()` returned a child plan the engine rejected. Deadlocks, serialization conflicts and dropped connections go to `onException()` instead |
 | `CompletionRejected` | `completion_rejected` | A completion state transition was denied |
 
 `HandlerCrashed` describes the original exception classifier, not a crash of
 `onFailure`. Hook failures update the failure record's separate `error` and
-`failures` fields; the original cause/reason never changes.
+`failures` fields; the original cause/reason never changes. A database exception from
+the hook is stored there as its class and SQLSTATE only, and reported in full.
 
 ### Missing inputs and deleted models
 
@@ -411,7 +417,7 @@ and comments only; it adds no migration or runtime API. Version 2.1.0 adds
 `000009_add_throttle_reservations`, with shared quota storage and per-attempt
 receipts. See [throttling rollout and rollback](throttling.md).
 
-Version 2.4.0 adds no migration, configuration key or workflow signature
+Versions 2.4.0 and 2.4.1 add no migration, configuration key or workflow signature
 change; see the [migration guide](../migration-from-step-dispatcher.md).
 
 Version 2.3.0 adds `2026_11_14_193248_add_workflow_and_step_descriptions`, with

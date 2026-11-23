@@ -5,8 +5,9 @@ declare(strict_types=1);
 /**
  * Returns runtime child plans that engine admission either accepts or rejects.
  * Counters reveal whether a rejected or unsaved handoff replays the business action
- * or its exception classifier. Modes choose a valid handle() plan, an invalid one, or
- * a before() throttle that reaches the engine before any action runs.
+ * or its exception classifier. Modes choose a valid handle() plan, an invalid one, an
+ * invalid one whose rejection text mentions a deadlock, or a before() throttle that reaches
+ * the engine before any action runs.
  */
 
 namespace Scarlett\Tests\Fixtures;
@@ -33,12 +34,14 @@ final class InvalidChildPlanStep extends Step
     public function handle(): mixed
     {
         self::$actions++;
+        // A rejection whose text reads like a database error must still settle as a rejection.
+        $key = $this->mode === 'deadlock-named' ? 'deadlock detected' : 'same';
 
         return match ($this->mode) {
             'valid' => Decision::children([new Node('child', ControlledStep::class, inputs: ['name' => 'child'])]),
             default => Decision::children([
-                new Node('same', ControlledStep::class, inputs: ['name' => 'same']),
-                new Node('same', ControlledStep::class, inputs: ['name' => 'same']),
+                new Node($key, ControlledStep::class, inputs: ['name' => $key]),
+                new Node($key, ControlledStep::class, inputs: ['name' => $key]),
             ]),
         };
     }

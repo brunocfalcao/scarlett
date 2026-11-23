@@ -404,7 +404,7 @@ that the saved result is acceptable**.
 | `before(Context): ?Decision` | Skip, stop, fail, retry, throttle or supply a result | Return `null` to run the action |
 | `handle(...)` | Perform your business action | Implement in each step |
 | `verify(Context, mixed $result): bool` | Confirm the decoded durable result | Return `true` |
-| `onException(Throwable, Context): Decision` | Classify constructed action/precheck/throttle errors | Retry within the configured budget |
+| `onException(Throwable, Context): Decision` | Classify constructed action/precheck/throttle errors, and passing database errors while Scarlett saves the result or records a child plan | Retry within the configured budget |
 | `onFailure(Context, Failure): void` | Durable final-failure effects, including worker loss | No job unless a failure hook is overridden |
 | `static onFailureWithoutInstance(Context, Failure): void` | Handle missing inputs from persisted identifiers | Diagnostic if a required instance cannot be restored |
 | `static executionOptions(): ExecutionOptions` | Class timeout/lease/retry defaults | Package configuration |
@@ -420,6 +420,7 @@ or seconds to wait. Throwing `Scarlett\Exceptions\Throttled` also defers executi
 | Invalid/deleted input | Terminal failure by default | Configurable exception classification |
 | Action exception | Ask `onException` for a decision | Action retry budget |
 | Result-saving failure | Fail without classifying it as another action attempt | No automatic action retry on this error path |
+| Deadlock, serialization conflict or dropped connection while saving the result or recording a child plan | Ask `onException` for a decision; a retry runs the action again. A save that committed goes on to verification | Action retry budget |
 | Saved result cannot be restored, or verification fails | Retry restoration/verification; do not rerun the saved action | Separate verification budget |
 | Throttle | Defer execution | Does not spend failure retries |
 | Zero-second throttle | Wait `scarlett.minimum_throttle_seconds` (default `1`) | Does not spend failure retries |

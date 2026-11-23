@@ -1,5 +1,28 @@
 # Current state — 2026-11-23
 
+## v2.4.1 runner fixes — 2026-11-23
+
+Release candidate from v2.4.0 (`0c74743c30827c6fe186534ec8f2c6fd18441f11`). Paths: the
+two runners, new `src/Execution/StoredError.php`, docblocks in `Step` and
+`FailureCause`, three test suites, two fixtures and package documentation. No
+migration, configuration key, dependency or workflow signature changed:
+`git diff v2.4.0 -- database config` is empty.
+
+Changed behaviour: the step's stored error text is read after `onException()`
+returns (v2.3.4 behaviour, lost in v2.4.0); a deadlock, serialization conflict or
+dropped connection while recording a child plan from `handle()`/`before()` or saving a
+result is classified by `onException()`, and a save that committed first goes on to
+verification; database errors from those writes and from failure hooks are stored as
+class and SQLSTATE with the full error reported. Found by Friday's release check
+against v2.4.0.
+
+Fresh release verification on PHP 8.5.12: full gate `./run-pest-tia.sh --fresh` 680
+tests / 5639 assertions; whole suite per CI database: SQLite 680 / 5631, MySQL 680 /
+5638, PostgreSQL 680 / 5636. Reference host 64 tests / 452 assertions against the
+exact package source. Package Pint and strict Composer validation pass. Friday's own
+six failing tests have not been rerun here; its release session reruns its Scarlett
+check against the published tag. Nothing is deployed.
+
 ## v2.4.0 hardening — 2026-11-23
 
 Complete release from v2.3.4 (`6990a8ba03c811b89c38accb4a979e6a1ec92b42`), including

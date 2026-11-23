@@ -6,6 +6,38 @@ serialized jobs are compatible. Do not point Scarlett at dispatcher tables.
 
 ## Install and upgrade the package
 
+### v2.4.1 runner fixes
+
+Version 2.4.1 is a source release built from v2.4.0. It adds no migration,
+configuration key or workflow signature, and all eleven published migration files are
+unchanged. It restores two v2.3.4 runner behaviours that v2.4.0 changed, retries
+passing database errors during result saves, and keeps database error text out of
+stored records. Source publication does not update, migrate or
+deploy consuming applications.
+
+- **Stored error text.** When an action throws, Scarlett reads the error text it stores
+  after `onException()` returns, as v2.3.4 did. A step that replaces a private exception
+  message inside `onException()` keeps that text out of the step's `error` and history.
+- **Passing database errors.** A deadlock, serialization conflict or dropped connection
+  while Scarlett records a runtime child plan returned by `handle()` or `before()`, or
+  saves the action's result, is classified through `onException()` like an action error.
+  The step's own rules decide whether it retries; v2.4.0 ended it as
+  `ResultPersistence` after a handoff error, and v2.3.4 and v2.4.0 both did so after a
+  save error. A retry runs the action again, because no result was saved. A result
+  save that committed before its connection dropped goes on to verification without
+  running the action again. Only database exceptions count:
+  a rejected child plan whose message mentions a deadlock still ends the step once.
+- **Database error text.** A database error that refuses a result save or a child
+  handoff, or that is raised while a failure hook runs, is stored as its exception
+  class and SQLSTATE followed by "(details in the application log)". A passing one that
+  `onException()` classified is stored the same way when its decision omits a reason.
+  The full exception
+  is passed to `report()`. Its message quotes SQL bindings, which can hold inputs,
+  results or what a hook was writing. Other errors keep their message.
+
+Before upgrading a consumer, rerun its tests for retried steps, runtime child handoffs
+and any check that reads stored `error` values or failure reasons for database errors.
+
 ### v2.4.0 hardening
 
 Version 2.4.0 is a source release built from v2.3.4. It adds no migration,
@@ -53,6 +85,8 @@ Behaviour changes to check before deploying:
   that record the outcome run outside it. A result that cannot be saved becomes
   `ResultPersistence`. A child plan the engine rejects becomes terminal:
   `HandlerCrashed` when `onException()` returned it, otherwise `ResultPersistence`.
+  Version 2.4.1 classifies passing database errors during these writes through
+  `onException()` instead; see [v2.4.1 runner fixes](#v241-runner-fixes).
 
 Unchanged behaviour, now documented:
 
@@ -272,13 +306,17 @@ application's job.
 
 ## Error semantics that must be preserved
 
-`onException` runs when the constructed action/precheck/throttle throws. Input
+`onException` runs when the constructed action/precheck/throttle throws, and for a
+passing database error (deadlock, serialization conflict, dropped connection) while
+Scarlett saves the action's result or records a child plan from `handle()`/`before()`.
+Input
 resolution or construction errors use `scarlett.input_exception_handler`:
 temporary failures retry within the existing budget, while
 `scarlett.input_terminal_exceptions` keeps invalid/deleted inputs terminal.
 Preparation after action persistence uses the verification budget. Keep
-constructors free of external side effects. Result-saving errors fail without
-repeating the action. Result restoration and verification errors use the
+constructors free of external side effects. Other result-saving errors fail without
+repeating the action. A retried passing database error runs the action again, because
+no result was saved; keep actions safe to repeat. Result restoration and verification errors use the
 verification budget, and every verification receives the decoded saved result.
 
 `onException` is not a guaranteed final-failure callback: a killed process never
@@ -433,7 +471,9 @@ revision and apply its migrations before starting updated workers.
   case or merge distinct keys during migration.
 - Payload version 2 reads version 1 values and preserves named timezones for newly
   stored dates. Persisted representation changes need deliberate mapper versioning.
-- Result persistence rejection fails the step without replaying its action.
+- Result persistence rejection fails the step without replaying its action. A passing
+  database error during the save is classified by `onException()` instead; a retry
+  replays the action.
   Verification restores the durable result and rechecks ownership after decoding.
 - Literal scalar/array signature mismatches fail before admission. Future results
   and service bindings remain late-bound and can fail during input restoration.
