@@ -6,6 +6,25 @@ serialized jobs are compatible. Do not point Scarlett at dispatcher tables.
 
 ## Install and upgrade the package
 
+### v2.4.2 runner and configuration hardening
+
+Version 2.4.2 is a source release built from v2.4.1. It adds no migration,
+configuration key or workflow signature, and all eleven published migration files are
+unchanged. Source publication does not update, migrate or deploy consuming applications.
+
+- **Concurrent deletion during result save or verification.** When a passing database
+  error hits a result save and the step has been deleted concurrently (for example by
+  `SubjectDeletion`), or when a step disappears just before `verify()`, the runner now
+  returns cleanly instead of throwing `ModelNotFoundException` from `$record->refresh()`.
+- **Default routing validation.** `Configuration::validate()` now checks `scarlett.queue`
+  (non-empty valid UTF-8 string up to 255 characters) and `scarlett.connection` (`null`
+  or non-empty valid UTF-8 string up to 255 characters) before admission, matching
+  per-node routing checks. Leave `SCARLETT_QUEUE_CONNECTION` unset rather than empty.
+- **Database error text on handler crash and verification.** A `PDOException` thrown by
+  `onException()` or `verify()` is now stored through `StoredError::describe()` (class
+  and SQLSTATE, full exception reported to the application log) so SQL bindings do not
+  enter step records or history. Other errors keep their message unchanged.
+
 ### v2.4.1 runner fixes
 
 Version 2.4.1 is a source release built from v2.4.0. It adds no migration,

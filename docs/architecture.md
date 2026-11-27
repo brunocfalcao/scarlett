@@ -67,9 +67,11 @@ because no result was saved. Only database exceptions count: a rejection whose t
 mentions a deadlock still settles once. A save that committed before its
 connection dropped goes straight to verification. The caught exception's message is
 read only after `onException()` returns, so a handler can replace text it must not have
-stored. A database error from one of these engine writes, or from a failure hook, is
-stored as its class and SQLSTATE only, because its message quotes the step's payload or
-the hook's writes; the full error is reported to the application log.
+stored. A database error from one of these engine writes, a failure hook, a crashing
+`onException()` handler, or `verify()` is stored as its class and SQLSTATE only,
+because its message quotes SQL bindings; the full error is reported to the application
+log. If a step record is deleted concurrently during result-save recovery or just before
+`verify()`, the runner exits cleanly without failing the queue job.
 
 When configured, runners release the default connection before actions, verification
 and failure hooks, and on exit. `ConnectionRelease` checks transaction and PDO

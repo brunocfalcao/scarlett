@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.4.2 — 2026-11-26
+
+### Fixed
+
+- Exit cleanly as a no-op when a step record is deleted concurrently with a passing database error during result persistence or right before verification, instead of raising an uncaught `ModelNotFoundException` from `$record->refresh()`.
+- Validate default `scarlett.queue` (required non-empty valid UTF-8 string, at most 255 characters) and `scarlett.connection` (nullable non-empty valid UTF-8 string, at most 255 characters) in `Configuration::validate()`, matching per-node routing validation before any work is admitted.
+- Route database errors raised when `onException()` crashes or during `verify()` through `StoredError::describe()` so SQL bindings stay out of `scarlett_steps.error` and `scarlett_history.reason` while full exceptions are reported to the application log.
+
+### Tests
+
+- Add regressions for concurrent step deletion during a passing result-save database error, `StoredError` redaction on `onException()` crashes and `verify()` database errors, and invalid `scarlett.queue` / `scarlett.connection` defaults.
+
+### Upgrade
+
+- No migration, configuration key, dependency or workflow signature changes; all eleven published migration files are unchanged from v2.4.1.
+- Applications with blank `SCARLETT_QUEUE` or `SCARLETT_QUEUE_CONNECTION=""` settings will now fail fast at admission rather than later during queue dispatch; omit `SCARLETT_QUEUE_CONNECTION` (or set it to `null`) to use Laravel's default queue connection.
+- Source publication does not update, migrate or deploy consuming applications.
+
 ## 2.4.1 — 2026-11-23
 
 ### Fixed

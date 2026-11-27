@@ -24,6 +24,10 @@ flowchart LR
     Slug --> Result["hello-laravel"]
 ```
 
+Version 2.4.2 handles concurrent step deletion cleanly during result-save recovery
+and verification, validates default `scarlett.queue`/`scarlett.connection` settings
+at admission, and keeps database error bindings out of `onException()` crash and
+`verify()` records; see the [migration guide](migration-from-step-dispatcher.md#v242-runner-and-configuration-hardening).
 Version 2.4.1 restores v2.3.4's retry of passing database errors during child
 handoffs, extends it to result saves, keeps database error text out of stored errors,
 and stores the error text `onException()` leaves; see the [migration guide](migration-from-step-dispatcher.md#v241-runner-fixes).

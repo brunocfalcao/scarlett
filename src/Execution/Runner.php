@@ -97,9 +97,16 @@ final class Runner
         } elseif ($exception === null && $decision?->producesResult && ! $record->action_completed) {
             $saved = $this->persist($stepId, $attempt, $decision, returnPassing: true, passing: $exception);
             // A save can commit before its connection drops; then only verification remains.
-            if ($exception !== null && $record->refresh()->action_completed) {
-                $exception = null;
-                $saved = true;
+            if ($exception !== null) {
+                $fresh = StepRecord::find($stepId);
+                if ($fresh === null) {
+                    return;
+                }
+                $record = $fresh;
+                if ($record->action_completed) {
+                    $exception = null;
+                    $saved = true;
+                }
             }
             if (! $saved && $exception === null) {
                 return;
@@ -113,7 +120,7 @@ final class Runner
             try {
                 $decision = $this->classify($exception, $step, $context);
             } catch (Throwable $handlerFailure) {
-                $this->engine->decide($stepId, $attempt, Decision::fail(), $handlerFailure->getMessage(), cause: FailureCause::HandlerCrashed);
+                $this->engine->decide($stepId, $attempt, Decision::fail(), StoredError::describe($handlerFailure), cause: FailureCause::HandlerCrashed);
 
                 return;
             }
@@ -255,14 +262,18 @@ final class Runner
     private function verify(string $stepId, string $attempt, Context $context, StepRecord $record, ?Step $step): void
     {
         try {
-            $result = $this->codec->decode($record->refresh()->result);
+            $fresh = StepRecord::find($stepId);
+            if ($fresh === null) {
+                return;
+            }
+            $result = $this->codec->decode($fresh->result);
             if (! $context->isCurrent()) {
                 return;
             }
             $context->releaseDatabaseConnection();
             $verified = $step->verify($context, $result);
         } catch (Throwable $exception) {
-            $this->engine->decide($stepId, $attempt, Decision::retry(), $exception->getMessage(), verification: true);
+            $this->engine->decide($stepId, $attempt, Decision::retry(), StoredError::describe($exception), verification: true);
 
             return;
         }

@@ -36,6 +36,14 @@ final class Configuration
                 throw new InvalidArgumentException("scarlett.$name must be a positive integer.");
             }
         }
+        $queue = config('scarlett.queue');
+        if (! is_string($queue) || $queue === '' || ! mb_check_encoding($queue, 'UTF-8') || mb_strlen($queue, 'UTF-8') > 255) {
+            throw new InvalidArgumentException('scarlett.queue must be a non-empty valid UTF-8 string of at most 255 characters.');
+        }
+        $connection = config('scarlett.connection');
+        if ($connection !== null && (! is_string($connection) || $connection === '' || ! mb_check_encoding($connection, 'UTF-8') || mb_strlen($connection, 'UTF-8') > 255)) {
+            throw new InvalidArgumentException('scarlett.connection must be null or a non-empty valid UTF-8 string of at most 255 characters.');
+        }
         /**
          * Validate resolved defaults using the same code that checks per-node settings.
          * Then build the state machine now, so invalid aliases or transition definitions

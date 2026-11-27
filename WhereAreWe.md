@@ -1,4 +1,27 @@
-# Current state — 2026-11-23
+# Current state — 2026-11-26
+
+## v2.4.2 runner and configuration hardening — 2026-11-26
+
+Release candidate from v2.4.1 (`5f00e38f2ce90d10ab87cc4cfef36337677a3319`). Paths:
+`src/Configuration.php`, `src/Execution/Runner.php`, two Feature test suites
+(`CommandsAndConfigTest`, `ResultPersistenceTest`), and package documentation.
+No migration, configuration key, dependency or workflow signature changed:
+`git diff v2.4.1 -- database config` is empty.
+
+Changed behaviour: concurrent step deletion during a passing database error on
+result save (or right before `verify()`) exits cleanly as a no-op via
+`StepRecord::find()` instead of raising an uncaught `ModelNotFoundException` from
+`$record->refresh()`; `Configuration::validate()` validates default `scarlett.queue`
+and `scarlett.connection` before admission (non-empty valid UTF-8, at most 255
+characters, nullable connection); and database errors raised when `onException()`
+crashes or during `verify()` are stored via `StoredError::describe()` with the full
+exception reported to the application log.
+
+Fresh release verification on PHP 8.5.12: full gate `./run-pest-tia.sh --fresh`
+690 tests / 5675 assertions (421.45s); whole suite per CI database: SQLite
+690 / 5667, MySQL 690 / 5674, PostgreSQL 690 / 5672. Reference host (`scarlett.test`)
+80 tests / 497 assertions against the exact package source. Package Pint and strict
+Composer validation pass. Nothing is deployed.
 
 ## v2.4.1 runner fixes — 2026-11-23
 

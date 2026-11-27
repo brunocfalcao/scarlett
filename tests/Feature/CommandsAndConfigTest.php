@@ -142,6 +142,14 @@ it('rejects invalid global Scarlett configuration values', function (string $key
     'invalid input_exception_handler' => ['input_exception_handler', stdClass::class, 'ExceptionHandler'],
     'associative input_terminal_exceptions' => ['input_terminal_exceptions', ['a' => RuntimeException::class], 'list'],
     'non-throwable input_terminal_exceptions' => ['input_terminal_exceptions', [stdClass::class], 'Throwable'],
+    'empty queue' => ['queue', '', 'scarlett.queue'],
+    'null queue' => ['queue', null, 'scarlett.queue'],
+    'invalid utf8 queue' => ['queue', "\xFF", 'scarlett.queue'],
+    'oversized queue' => ['queue', str_repeat('q', 256), 'scarlett.queue'],
+    'empty connection' => ['connection', '', 'scarlett.connection'],
+    'non-string connection' => ['connection', 123, 'scarlett.connection'],
+    'invalid utf8 connection' => ['connection', "\xFF", 'scarlett.connection'],
+    'oversized connection' => ['connection', str_repeat('c', 256), 'scarlett.connection'],
 ]);
 
 it('rejects invalid registry, retry policy and throttle configuration before admission', function (string $key, mixed $value, string $message) {
